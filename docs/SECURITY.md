@@ -85,3 +85,28 @@ Take a verified backup before database or source-control upgrades.
 Repository creation/import, project creation, deployment requests, environment changes, server registration, authentication changes and backup requests are written to audit_logs.
 
 Audit logs should eventually be shipped to an external append-only destination if this platform grows beyond a single owner.
+
+## Control-plane roles
+
+Control-plane authorization is enforced before route handling:
+
+- Owner: all actions, including account administration.
+- Admin: platform/infrastructure/project administration except Owner management.
+- Developer: repository/project/deployment operations only.
+- Viewer: read-only project/application surfaces.
+
+The last enabled Owner cannot be disabled or demoted. Disabled users are rejected by login and existing server-rendered sessions are invalidated on the next authenticated request.
+
+## CSRF and same-site subdomains
+
+Session cookies are SameSite Strict, but deployed applications may share the same registrable domain as the control plane. State-changing session API requests therefore also validate the Origin header against CONTROL_DOMAIN. This prevents a sibling application subdomain from submitting authenticated control-plane mutations.
+
+## Repository URL boundaries
+
+Production projects may clone only from FORGEJO_PUBLIC_URL.
+
+External repository migration accepts HTTPS URLs only, rejects embedded credentials/private addresses, and requires the hostname to appear in GIT_IMPORT_HOSTS. This reduces SSRF and DNS-rebinding exposure from repository import/deploy features.
+
+## Background commands
+
+Worker and cron commands intentionally execute inside owner-controlled application images. This is arbitrary code execution by design. Developer-level access should therefore be granted only to trusted collaborators. Background services do not turn this platform into a safe hostile multi-tenant build environment.
