@@ -1,0 +1,48 @@
+name: Verify platform
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: docker
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: migration_test
+          POSTGRES_USER: migration_test
+          POSTGRES_PASSWORD: migration_test
+    steps:
+      - name: Checkout
+        uses: https://data.forgejo.org/actions/checkout@v6
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Runtime syntax
+        run: npm run runtime-check
+
+      - name: Operational shell syntax
+        run: bash -n scripts/bootstrap.sh ops/backup/*.sh ops/remote-node/install.sh ops/forgejo-runner/install.sh scripts/forgejo-runner-token.sh
+
+      - name: Database migrations
+        run: npm run migrate
+        env:
+          DATABASE_URL: postgresql://migration_test:migration_test@postgres:5432/migration_test
+
+      - name: Next production build
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build
+          REDIS_URL: redis://127.0.0.1:6379
+          SESSION_SECRET: forgejo-ci-session-secret-forgejo-ci
+          MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
