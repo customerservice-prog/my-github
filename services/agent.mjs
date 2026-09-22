@@ -106,6 +106,35 @@ async function provisionStorage({projectSlug,bucket,accessKey,secretKey}){
   };
 }
 
+async function writeEnvFile(name,env){
+  const envPath="/tmp/"+name+".env";
+  const envText=Object.entries(env).map(([k,v])=>k+"="+String(v).replace(/\r/g,"")).join("\n")+"\n";
+  await fs.writeFile(envPath,envText,{mode:0o600});
+  return envPath;
+}
+
+async function volumeArgs(projectSlug,mounts){
+  const args=[];
+  for(const mount of mounts){
+    const volumeName="mygithub-"+projectSlug+"-"+mount.name;
+    await docker(["volume","create","--label","mygithub.project="+projectSlug,volumeName]);
+    args.push("--mount","type=volume,src="+volumeName+",dst="+mount.mountPath);
+  }
+  return args;
+}
+
+function validateRuntimeEnv(env,mounts){
+  for(const [key,value] of Object.entries(env)){
+    if(!/^[A-Z_][A-Z0-9_]*$/.test(key)) throw new Error("Invalid environment key");
+    if(String(value).includes("\n")) throw new Error("Multiline environment values are not supported by this agent");
+  }
+  for(const mount of mounts){
+    if(!mount||!validSlug(String(mount.name||""))) throw new Error("Invalid volume name");
+    const target=String(mount.mountPath||"");
+    if(!/^\/[A-Za-z0-9._/-]+$/.test(target)||target.split("/").includes("..")) throw new Error("Invalid volume mount path");
+  }
+}
+
 async function ensureNetwork(){
   try{await docker(["network","inspect",network]);}
   catch{await docker(["network","create",network]);}
@@ -194,15 +223,7 @@ async function deploy(body){
   if(!validDomain(domain)) throw new Error("Invalid domain");
   if(!Number.isSafeInteger(containerPort)||containerPort<1||containerPort>65535) throw new Error("Invalid container port");
   if(!validHealth(healthPath)) throw new Error("Invalid health path");
-  for(const [key,value] of Object.entries(env)){
-    if(!/^[A-Z_][A-Z0-9_]*$/.test(key)) throw new Error("Invalid environment key");
-    if(String(value).includes("\n")) throw new Error("Multiline environment values are not supported by this agent");
-  }
-  for(const mount of mounts){
-    if(!mount||!validSlug(String(mount.name||""))) throw new Error("Invalid volume name");
-    const target=String(mount.mountPath||"");
-    if(!/^\/[A-Za-z0-9._/-]+$/.test(target)||target.split("/").includes("..")) throw new Error("Invalid volume mount path");
-  }
+  validateRuntimeEnv(env,mounts);
 
   await ensureNetwork();
   await docker(["pull",image]);
@@ -210,16 +231,9 @@ async function deploy(body){
   const old=await activeContainers(projectSlug);
   await docker(["rm","-f",name]).catch(()=>{});
 
-  const envPath="/tmp/"+name+".env";
-  const envText=Object.entries(env).map(([k,v])=>k+"="+String(v).replace(/\r/g,"")).join("\n")+"\n";
-  await fs.writeFile(envPath,envText,{mode:0o600});
+  const envPath=await writeEnvFile(name,env);
   try{
-    const mountArgs=[];
-    for(const mount of mounts){
-      const volumeName="mygithub-"+projectSlug+"-"+mount.name;
-      await docker(["volume","create","--label","mygithub.project="+projectSlug,volumeName]);
-      mountArgs.push("--mount","type=volume,src="+volumeName+",dst="+mount.mountPath);
-    }
+    const mountArgs=await volumeArgs(projectSlug,mounts);
     await docker([
       "run","-d",
       "--name",name,
@@ -284,6 +298,81 @@ async function writeMaintenanceRoute(slug,domain){
   await fs.rename(temp,target);
 }
 
+async function syncWorkers(body){
+  const projectSlug=String(body.projectSlug||"");
+  const image=String(body.image||"");
+  const env=body.env&&typeof body.env==="object"?body.env:{};
+  const mounts=Array.isArray(body.mounts)?body.mounts:[];
+  const workers=Array.isArray(body.workers)?body.workers:[];
+  if(!validSlug(projectSlug)||!image||/\s/.test(image)) throw new Error("Invalid worker target");
+  validateRuntimeEnv(env,mounts);
+  await ensureNetwork();
+
+  const desired=new Set();
+  for(const worker of workers){
+    const name=String(worker.name||"");
+    const command=String(worker.command||"");
+    if(!validSlug(name)||!command||command.length>1000||command.includes("\n")) throw new Error("Invalid worker configuration");
+    const container=(projectSlug+"-worker-"+name).slice(0,120);
+    desired.add(container);
+    await docker(["rm","-f",container]).catch(()=>{});
+    const envPath=await writeEnvFile(container,env);
+    try{
+      const mountArgs=await volumeArgs(projectSlug,mounts);
+      await docker([
+        "run","-d","--name",container,"--restart","unless-stopped","--network",network,
+        "--label","mygithub.project="+projectSlug,
+        "--label","mygithub.kind=worker",
+        "--label","mygithub.service="+name,
+        "--env-file",envPath,
+        ...mountArgs,
+        image,"/bin/sh","-lc",command
+      ]);
+    }finally{
+      await fs.rm(envPath,{force:true}).catch(()=>{});
+    }
+  }
+
+  const existing=await docker(["ps","-a","--filter","label=mygithub.project="+projectSlug,"--filter","label=mygithub.kind=worker","--format","{{.Names}}"]).catch(()=>"");
+  for(const container of existing.split("\n").filter(Boolean)){
+    if(!desired.has(container)) await docker(["rm","-f",container]).catch(()=>{});
+  }
+  return {ok:true,workers:[...desired]};
+}
+
+async function runJob(body){
+  const projectSlug=String(body.projectSlug||"");
+  const serviceName=String(body.serviceName||"");
+  const runId=Number(body.runId);
+  const image=String(body.image||"");
+  const command=String(body.command||"");
+  const env=body.env&&typeof body.env==="object"?body.env:{};
+  const mounts=Array.isArray(body.mounts)?body.mounts:[];
+  if(!validSlug(projectSlug)||!validSlug(serviceName)||!Number.isSafeInteger(runId)||runId<1) throw new Error("Invalid job target");
+  if(!image||/\s/.test(image)||!command||command.length>1000||command.includes("\n")) throw new Error("Invalid job command");
+  validateRuntimeEnv(env,mounts);
+  await ensureNetwork();
+
+  const name=(projectSlug+"-job-"+serviceName+"-"+runId).slice(0,120);
+  await docker(["rm","-f",name]).catch(()=>{});
+  const envPath=await writeEnvFile(name,env);
+  try{
+    const mountArgs=await volumeArgs(projectSlug,mounts);
+    const result=await execFileAsync("docker",[
+      "run","--rm","--name",name,"--network",network,
+      "--label","mygithub.project="+projectSlug,
+      "--label","mygithub.kind=cron",
+      "--label","mygithub.service="+serviceName,
+      "--env-file",envPath,
+      ...mountArgs,
+      image,"/bin/sh","-lc",command
+    ],{maxBuffer:2*1024*1024,timeout:10*60*1000});
+    return {ok:true,output:(String(result.stdout||"")+String(result.stderr||"")).slice(-100000)};
+  }finally{
+    await fs.rm(envPath,{force:true}).catch(()=>{});
+  }
+}
+
 async function currentContainer(slug){
   const names=await activeContainers(slug);
   for(const name of names){
@@ -329,6 +418,14 @@ const server=http.createServer(async(req,res)=>{
 
     if(req.method==="POST"&&url.pathname==="/deploy"){
       return send(res,200,await deploy(await readBody(req)));
+    }
+
+    if(req.method==="POST"&&url.pathname==="/services/sync"){
+      return send(res,200,await syncWorkers(await readBody(req)));
+    }
+
+    if(req.method==="POST"&&url.pathname==="/job/run"){
+      return send(res,200,await runJob(await readBody(req)));
     }
 
     if(req.method==="POST"&&url.pathname==="/storage/provision"){
