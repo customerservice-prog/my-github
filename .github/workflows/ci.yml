@@ -55,10 +55,7 @@ jobs:
             docker manifest inspect "$image" >/dev/null
           done
 
-          for image in \
-            minio/minio:RELEASE.2026-09-19T17-05-25Z \
-            minio/mc:RELEASE.2026-09-19T15-24-59Z
-          do
+          for image in \do
             echo "Verifying pull $image"
             docker pull "$image" >/dev/null
           done
@@ -77,6 +74,7 @@ jobs:
           docker build -f Dockerfile.control -t my-github-control:test .
           docker build -f Dockerfile.worker -t my-github-worker:test .
           docker build -f Dockerfile.agent -t my-github-agent:test .
+          docker build -f Dockerfile.minio -t my-github-minio:test .
           docker build -f ops/backup/Dockerfile -t my-github-backup:test ops/backup
       - name: Boot runtime images and health-check them
         run: |
