@@ -11,7 +11,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18-alpine
@@ -76,7 +76,7 @@ jobs:
         run: |
           set -eu
           docker network create ci-runtime
-          trap 'docker rm -f ci-control ci-agent ci-redis ci-postgres >/dev/null 2>&1 || true; docker network rm ci-runtime >/dev/null 2>&1 || true' EXIT
+          trap 'docker rm -f ci-control ci-agent ci-minio ci-redis ci-postgres >/dev/null 2>&1 || true; docker network rm ci-runtime >/dev/null 2>&1 || true' EXIT
 
           docker run -d --name ci-postgres --network ci-runtime \
             -e POSTGRES_DB=runtime_test \
@@ -84,6 +84,10 @@ jobs:
             -e POSTGRES_PASSWORD=runtime_test \
             postgres:18-alpine
           docker run -d --name ci-redis --network ci-runtime redis:8-alpine
+          docker run -d --name ci-minio --network ci-runtime -p 9100:9000 \
+            -e MINIO_ROOT_USER=ci-minio-admin \
+            -e MINIO_ROOT_PASSWORD=ci-minio-password-1234567890 \
+            my-github-minio:test server /data --console-address ":9001"
 
           for i in $(seq 1 30); do
             if docker exec ci-postgres pg_isready -U runtime_test -d runtime_test >/dev/null 2>&1; then break; fi
@@ -115,8 +119,22 @@ jobs:
           CI_BOOTSTRAP_PASSWORD=tester-password-12345 \
           node scripts/ci-control-smoke.mjs
 
-          docker run -d --name ci-agent -p 7100:7001 \
+          minio_ok=0
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:9100/minio/health/live >/dev/null; then minio_ok=1; break; fi
+            sleep 1
+          done
+          if [ "$minio_ok" -ne 1 ]; then
+            docker logs ci-minio
+            exit 1
+          fi
+
+          docker run -d --name ci-agent --network ci-runtime -p 7100:7001 \
             -e AGENT_TOKEN=ci-agent-token-ci-agent-token \
+            -e MINIO_ROOT_USER=ci-minio-admin \
+            -e MINIO_ROOT_PASSWORD=ci-minio-password-1234567890 \
+            -e STORAGE_ENDPOINT_INTERNAL=http://ci-minio:9000 \
+            -e STORAGE_PUBLIC_URL=https://storage.example.test \
             -v /var/run/docker.sock:/var/run/docker.sock \
             my-github-agent:test
 
@@ -129,6 +147,11 @@ jobs:
             docker logs ci-agent
             exit 1
           fi
+
+          curl -fsS -X POST http://127.0.0.1:7100/storage/provision \
+            -H 'authorization: Bearer ci-agent-token-ci-agent-token' \
+            -H 'content-type: application/json' \
+            --data '{"projectSlug":"ci-storage","bucket":"ci-storage-bucket","accessKey":"MG1234567890ABCDEF","secretKey":"ci-storage-secret-key-12345678901234567890"}' >/dev/null
 
       - name: Validate Compose
         run: |
