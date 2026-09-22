@@ -7,12 +7,14 @@ import { one } from "@/lib/db";
 type ProjectRuntime={
   id:number;
   slug:string;
+  domain:string;
+  container_port:number;
   base_url:string|null;
   agent_token_enc:string|null;
 };
 
 async function target(projectId:number){
-  return one<ProjectRuntime>(`SELECT p.id,p.slug,s.base_url,s.agent_token_enc
+  return one<ProjectRuntime>(`SELECT p.id,p.slug,p.domain,p.container_port,s.base_url,s.agent_token_enc
     FROM projects p LEFT JOIN servers s ON s.id=p.server_id WHERE p.id=$1`,[projectId]);
 }
 
@@ -53,16 +55,21 @@ export async function POST(request:Request,{params}:{params:Promise<{id:string}>
   const project=await target(Number(id));
   if(!project) return NextResponse.json({error:"Project not found"},{status:404});
   const body=await request.json().catch(()=>({}));
-  if(body.action!=="restart") return NextResponse.json({error:"Unsupported action"},{status:400});
+  if(!["restart","maintenance"].includes(body.action)) return NextResponse.json({error:"Unsupported action"},{status:400});
   try{
-    const res=await agentFetch(project,"/restart",{
+    const endpoint=body.action==="restart"?"/restart":"/maintenance";
+    const payload=body.action==="restart"
+      ? {projectSlug:project.slug}
+      : {projectSlug:project.slug,domain:project.domain,containerPort:project.container_port,enabled:Boolean(body.enabled)};
+    const res=await agentFetch(project,endpoint,{
       method:"POST",
       headers:{"content-type":"application/json"},
-      body:JSON.stringify({projectSlug:project.slug})
+      body:JSON.stringify(payload)
     });
     const data=await res.json().catch(()=>({}));
     if(!res.ok) return NextResponse.json({error:data.error||"Restart failed"},{status:res.status});
-    await audit(user.id,"PROJECT_RUNTIME_RESTARTED","project",project.id,{container:data.container||null});
+    await audit(user.id,body.action==="restart"?"PROJECT_RUNTIME_RESTARTED":"PROJECT_MAINTENANCE_CHANGED","project",project.id,
+      body.action==="restart"?{container:data.container||null}:{enabled:Boolean(body.enabled)});
     return NextResponse.json(data);
   }catch(e){
     return NextResponse.json({error:e instanceof Error?e.message:"Runtime unavailable"},{status:502});
