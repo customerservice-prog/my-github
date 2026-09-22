@@ -89,3 +89,11 @@ Grafana is provisioned with Prometheus and Loki data sources plus the Platform O
 Grafana Alloy discovers Docker containers from the read-only Docker socket and forwards container logs to Loki. Promtail is not used.
 
 The control worker separately performs external HTTPS health checks for production/staging applications and private deployment-agent health/resource checks. Those checks drive the dashboard/status page and optional ALERT_WEBHOOK_URL transition notifications.
+
+## Source-built object storage
+
+The bundled S3 layer is built from the pinned upstream MinIO Community source release rather than depending on a community image tag. The deployment agent embeds a separately pinned upstream `mc` client binary built from source. This keeps project-bucket provisioning self-contained even after MinIO Community moved away from maintained binary/container distribution.
+
+## Self-hosted CI
+
+Forgejo Actions is supported through a dedicated Forgejo Runner host. The runner is intentionally installed on a separate CI machine so workflow execution does not share a trust boundary with production databases, source-control storage or deployment agents. The repository includes a non-privileged Forgejo workflow for dependency installation, TypeScript, tests, syntax checks, migrations and the Next.js production build.
