@@ -20,12 +20,19 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm test
+      - run: npm run runtime-check
       - run: npm run build
         env:
           DATABASE_URL: postgresql://user:pass@localhost:5432/test
           REDIS_URL: redis://localhost:6379
           SESSION_SECRET: ci-session-secret-ci-session-secret
           MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      - name: Build production images
+        run: |
+          docker build -f Dockerfile.control -t my-github-control:test .
+          docker build -f Dockerfile.worker -t my-github-worker:test .
+          docker build -f Dockerfile.agent -t my-github-agent:test .
+          docker build -f ops/backup/Dockerfile -t my-github-backup:test ops/backup
       - name: Validate Compose
         run: |
           cp .env.example .env
