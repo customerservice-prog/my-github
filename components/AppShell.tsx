@@ -3,15 +3,16 @@ import type { ReactNode } from "react";
 import type { SessionUser } from "@/lib/auth";
 
 const nav = [
-  ["/", "Overview", "⌂"],
-  ["/projects", "Projects", "◫"],
-  ["/repositories", "Repositories", "⌘"],
-  ["/deployments", "Deployments", "↗"],
-  ["/servers", "Servers", "▣"],
-  ["/backups", "Backups", "⟳"],
-  ["/audit", "Audit", "≡"],
-  ["/settings", "Settings", "⚙"]
-];
+  ["/", "Overview", "⌂", ["OWNER","ADMIN","DEVELOPER","VIEWER"]],
+  ["/projects", "Projects", "◫", ["OWNER","ADMIN","DEVELOPER","VIEWER"]],
+  ["/repositories", "Repositories", "⌘", ["OWNER","ADMIN","DEVELOPER","VIEWER"]],
+  ["/deployments", "Deployments", "↗", ["OWNER","ADMIN","DEVELOPER","VIEWER"]],
+  ["/servers", "Servers", "▣", ["OWNER","ADMIN"]],
+  ["/backups", "Backups", "⟳", ["OWNER","ADMIN"]],
+  ["/audit", "Audit", "≡", ["OWNER","ADMIN"]],
+  ["/settings", "Settings", "⚙", ["OWNER","ADMIN"]],
+  ["/settings/users", "Users", "◎", ["OWNER"]]
+] as const;
 
 export function AppShell({ user, children }: { user: SessionUser; children: ReactNode }) {
   return (
@@ -22,7 +23,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
           <div><strong>My GitHub</strong><span>Private Dev Cloud</span></div>
         </div>
         <nav>
-          {nav.map(([href,label,icon]) => (
+          {nav.filter(([, , ,roles])=>roles.includes(user.role as typeof roles[number])).map(([href,label,icon]) => (
             <Link href={href} key={href} className="nav-link"><span>{icon}</span>{label}</Link>
           ))}
         </nav>
