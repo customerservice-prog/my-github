@@ -10,12 +10,19 @@ function privateV4(ip:string){
     || (a===169&&b===254)
     || (a===172&&b>=16&&b<=31)
     || (a===192&&b===168)
+    || (a===100&&b>=64&&b<=127)
+    || (a===192&&b===0)
+    || (a===198&&(b===18||b===19))
     || a===0
     || a>=224;
 }
 
 function privateV6(ip:string){
   const value=ip.toLowerCase();
+  if(value.startsWith("::ffff:")){
+    const mapped=value.slice(7);
+    if(net.isIP(mapped)===4) return privateV4(mapped);
+  }
   return value==="::1"
     || value==="::"
     || value.startsWith("fc")
@@ -32,6 +39,9 @@ export async function assertPublicHttpsGitUrl(raw:string){
   if(url.username||url.password) throw new Error("Embedded repository credentials are not allowed");
   const host=url.hostname.toLowerCase();
   if(host==="localhost"||host.endsWith(".localhost")) throw new Error("Local repository URLs are not allowed");
+  const allowedHosts=(process.env.GIT_IMPORT_HOSTS||"github.com,gitlab.com,bitbucket.org,codeberg.org")
+    .split(",").map(value=>value.trim().toLowerCase()).filter(Boolean);
+  if(!allowedHosts.includes(host)) throw new Error("Repository host is not in GIT_IMPORT_HOSTS");
 
   const records=await dns.lookup(host,{all:true,verbatim:true});
   if(!records.length) throw new Error("Repository host did not resolve");
