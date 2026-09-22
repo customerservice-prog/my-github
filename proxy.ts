@@ -54,6 +54,20 @@ export async function proxy(request:NextRequest){
     return NextResponse.redirect(new URL("/login",request.url));
   }
 
+  if(mutation(request.method) && pathname.startsWith("/api/")){
+    const origin=request.headers.get("origin");
+    const controlDomain=process.env.CONTROL_DOMAIN;
+    if(origin && controlDomain){
+      let allowedOrigin=false;
+      try{
+        const parsed=new URL(origin);
+        allowedOrigin=parsed.protocol==="https:" && parsed.hostname===controlDomain;
+        if(process.env.NODE_ENV!=="production" && parsed.hostname==="localhost") allowedOrigin=true;
+      }catch{}
+      if(!allowedOrigin) return NextResponse.json({error:"Invalid request origin"},{status:403});
+    }
+  }
+
   try{
     const verified=await jwtVerify(token,secret());
     const role=String(verified.payload.role||"");
