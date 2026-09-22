@@ -63,3 +63,30 @@ export async function POST(_request:Request,{params}:{params:Promise<{id:string}
   await audit(user.id,"PROJECT_DATABASE_PROVISIONED","project",project.id,{database:name,username});
   return NextResponse.json(record,{status:201});
 }
+
+
+export async function PATCH(_request:Request,{params}:{params:Promise<{id:string}>}){
+  const user=await getCurrentUser();
+  if(!user) return NextResponse.json({error:"Unauthorized"},{status:401});
+  const {id}=await params;
+  const projectId=Number(id);
+  const managed=await one<ManagedDb>("SELECT id,name,username,host,port,created_at FROM project_databases WHERE project_id=$1",[projectId]);
+  if(!managed) return NextResponse.json({error:"No managed PostgreSQL database exists for this project"},{status:404});
+  const adminUrl=process.env.APP_DATABASE_ADMIN_URL;
+  if(!adminUrl) return NextResponse.json({error:"APP_DATABASE_ADMIN_URL is not configured"},{status:503});
+
+  const password=randomBytes(32).toString("base64url");
+  const client=new pg.Client({connectionString:adminUrl});
+  try{
+    await client.connect();
+    await client.query(`ALTER ROLE "${managed.username}" PASSWORD '${password}'`);
+  }finally{
+    await client.end().catch(()=>{});
+  }
+
+  const url="postgresql://"+encodeURIComponent(managed.username)+":"+encodeURIComponent(password)+"@"+managed.host+":"+managed.port+"/"+encodeURIComponent(managed.name);
+  await query(`INSERT INTO project_env(project_id,key,value_enc,secret,environment) VALUES($1,'DATABASE_URL',$2,true,'production')
+    ON CONFLICT(project_id,environment,key) DO UPDATE SET value_enc=EXCLUDED.value_enc,secret=true,updated_at=NOW()`,[projectId,encrypt(url)]);
+  await audit(user.id,"PROJECT_DATABASE_PASSWORD_ROTATED","project",projectId,{database:managed.name,username:managed.username});
+  return NextResponse.json({ok:true});
+}
