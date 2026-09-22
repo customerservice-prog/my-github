@@ -115,6 +115,7 @@ The backup service captures:
 - all managed application PostgreSQL databases
 - Forgejo repository/application data
 - MinIO object data
+- local persistent Docker volume data on the all-in-one host
 
 Restic retention keeps:
 
@@ -134,6 +135,30 @@ Restore drills are deliberately non-destructive:
 The default local RESTIC_REPOSITORY is suitable only for initial testing. Production must use an off-site repository in a separate failure domain.
 
 See docs/DISASTER_RECOVERY.md.
+
+## Access control
+
+The control plane supports four roles:
+
+- Owner — full platform control plus user administration.
+- Admin — infrastructure, projects, deployments, backups and settings; cannot manage Owner accounts.
+- Developer — repositories, projects and deployments; no infrastructure/security administration.
+- Viewer — read-only application/project surfaces.
+
+Owner-managed users live under Settings -> Users. Accounts can be disabled without deletion and password rotation is audited. The platform prevents removal/disablement of the final enabled Owner.
+
+These roles govern the My GitHub control plane. Forgejo's own repository collaborators, SSH keys and branch permissions remain managed in Forgejo.
+
+## Background workers and cron
+
+Projects may define:
+
+- long-running worker commands
+- five-field UTC cron commands
+
+Workers use the same immutable production image, production/all-scoped environment values and production volumes. They are reconciled after every successful production deployment.
+
+Cron runs use the latest healthy production image, are recorded in PostgreSQL, and keep recent output/error history in the project console. Commands run inside the application image through /bin/sh -lc, so the image must contain a POSIX shell for background-service features.
 
 ## Project lifecycle
 
@@ -210,7 +235,7 @@ The first control-panel login uses BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PAS
 
 ## Repository setup
 
-Repositories can be created directly in the Repositories page or imported from any Git clone URL.
+Repositories can be created directly in the Repositories page or imported from an allowlisted public HTTPS Git host. GIT_IMPORT_HOSTS defaults to GitHub, GitLab, Bitbucket and Codeberg. Project deployment URLs themselves must point to the configured Forgejo host.
 
 When a project is created, My GitHub automatically creates or updates its signed Forgejo push webhook. The webhook listens for pushes but the receiver only queues branches configured as production/staging targets.
 
