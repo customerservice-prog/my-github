@@ -13,13 +13,45 @@ if grep -Eq 'replace-|example\.com|change-this' .env; then
   exit 1
 fi
 
-docker compose up -d postgres redis forgejo-db forgejo traefik minio
+set -a
+. ./.env
+set +a
+
+docker compose up -d postgres app-postgres redis forgejo-db forgejo traefik minio
 echo "Waiting for Forgejo..."
 sleep 12
 
-docker compose exec -T -u git forgejo forgejo admin user create   --username "${FORGEJO_ADMIN_USER:-admin}"   --password "${FORGEJO_ADMIN_PASSWORD}"   --email "${FORGEJO_ADMIN_EMAIL}"   --admin   --must-change-password=false 2>/dev/null || true
+docker compose exec -T -u git forgejo forgejo admin user create \
+  --username "${FORGEJO_ADMIN_USER:-admin}" \
+  --password "${FORGEJO_ADMIN_PASSWORD}" \
+  --email "${FORGEJO_ADMIN_EMAIL}" \
+  --admin \
+  --must-change-password=false 2>/dev/null || true
 
 docker compose up -d --build
+
+echo "Waiting for control plane..."
+attempt=0
+until docker compose exec -T control node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1; do
+  attempt=$((attempt+1))
+  if [ "${attempt}" -ge 40 ]; then
+    echo "Control plane did not become healthy. Run: docker compose logs control postgres redis"
+    exit 1
+  fi
+  sleep 3
+done
+
+docker compose exec -T control node -e "
+fetch('http://127.0.0.1:3000/api/internal/bootstrap',{
+  method:'POST',
+  headers:{authorization:'Bearer '+process.env.INTERNAL_API_TOKEN}
+}).then(async r=>{
+  const body=await r.text();
+  if(!r.ok){console.error(body);process.exit(1)}
+  console.log(body)
+}).catch(e=>{console.error(e);process.exit(1)})
+"
+
 echo "Platform started."
 echo "Control plane: https://${CONTROL_DOMAIN}"
 echo "Git:           https://${GIT_DOMAIN}"
