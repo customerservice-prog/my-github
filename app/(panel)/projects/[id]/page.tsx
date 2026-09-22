@@ -7,10 +7,11 @@ import { ObjectStorageButton } from "@/components/ObjectStorageButton";
 import { PreviewDeployForm } from "@/components/PreviewDeployForm";
 import { ProjectLifecycle } from "@/components/ProjectLifecycle";
 import { CancelDeploymentButton } from "@/components/CancelDeploymentButton";
+import { ProjectSettingsForm } from "@/components/ProjectSettingsForm";
 import { one, query } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
 
-type Project={id:number;name:string;slug:string;repo_full_name:string;repo_url:string;branch:string;staging_domain:string|null;staging_branch:string|null;dockerfile:string;domain:string;container_port:number;health_path:string;auto_deploy:boolean;server_name:string|null;server_status:string|null};
+type Project={id:number;name:string;slug:string;repo_full_name:string;repo_url:string;branch:string;staging_domain:string|null;staging_branch:string|null;dockerfile:string;domain:string;container_port:number;health_path:string;auto_deploy:boolean;server_id:number;server_name:string|null;server_status:string|null};
 type Env={id:number;key:string;secret:boolean;environment:string;updated_at:string};
 type Deployment={id:number;status:string;environment:string;target_branch:string|null;target_domain:string|null;commit_sha:string|null;image:string|null;error:string|null;queued_at:string;finished_at:string|null};
 type Log={message:string;level:string;created_at:string};
@@ -22,12 +23,13 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
   const {id}=await params;
   const project=await one<Project>(`SELECT p.*,s.name server_name,s.status server_status FROM projects p LEFT JOIN servers s ON s.id=p.server_id WHERE p.id=$1`,[Number(id)]);
   if(!project) notFound();
-  const [envs,deployments,managedDb,volumes,bucket]=await Promise.all([
+  const [envs,deployments,managedDb,volumes,bucket,servers]=await Promise.all([
     query<Env>("SELECT id,key,secret,environment,updated_at FROM project_env WHERE project_id=$1 ORDER BY environment,key",[project.id]),
     query<Deployment>("SELECT id,status,environment,target_branch,target_domain,commit_sha,image,error,queued_at,finished_at FROM deployments WHERE project_id=$1 ORDER BY id DESC LIMIT 20",[project.id]),
     one<ManagedDb>("SELECT name,username,host,port,created_at FROM project_databases WHERE project_id=$1",[project.id]),
     query<Volume>("SELECT id,name,mount_path,created_at FROM project_volumes WHERE project_id=$1 ORDER BY name",[project.id]),
-    one<Bucket>("SELECT bucket_name,endpoint,created_at FROM project_buckets WHERE project_id=$1",[project.id])
+    one<Bucket>("SELECT bucket_name,endpoint,created_at FROM project_buckets WHERE project_id=$1",[project.id]),
+    query<{id:number;name:string}>("SELECT id,name FROM servers ORDER BY name")
   ]);
   const latest=deployments[0];
   const logs=latest?await query<Log>("SELECT message,level,created_at FROM deployment_logs WHERE deployment_id=$1 ORDER BY id DESC LIMIT 120",[latest.id]):[];
@@ -70,6 +72,23 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
         <div className="card-header"><h2>Runtime</h2><span className="muted tiny">Live from deployment agent</span></div>
         <div className="card-body"><RuntimePanel projectId={project.id}/></div>
       </div>
+    </section>
+    <section className="card section-gap">
+      <div className="card-header"><h2>Deployment settings</h2><span className="muted tiny">Domains, branches, runtime and auto-deploy</span></div>
+      <div className="card-body"><ProjectSettingsForm project={{
+        id:project.id,
+        repoFullName:project.repo_full_name,
+        repoUrl:project.repo_url,
+        domain:project.domain,
+        branch:project.branch,
+        stagingDomain:project.staging_domain||"",
+        stagingBranch:project.staging_branch||"staging",
+        dockerfile:project.dockerfile,
+        containerPort:project.container_port,
+        healthPath:project.health_path,
+        serverId:project.server_id,
+        autoDeploy:project.auto_deploy
+      }} servers={servers}/></div>
     </section>
     <section className="card section-gap">
       <div className="card-header"><h2>Project lifecycle</h2><span className="muted tiny">Non-destructive</span></div>
