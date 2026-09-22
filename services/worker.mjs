@@ -83,7 +83,7 @@ async function processDeployment(deploymentId){
   if(!job) return;
   if(!job.server_id) throw new Error("No deployment server assigned");
   const deploySlug=job.target_slug||job.slug;
-  const deployBranch=job.target_branch||deployBranch;
+  const deployBranch=job.target_branch||job.branch;
   const deployDomain=job.target_domain||job.domain;
   const deployEnvironment=job.environment||"production";
 
