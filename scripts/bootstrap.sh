@@ -13,6 +13,7 @@ if grep -Eq 'replace-|example\.com|change-this' .env; then
   exit 1
 fi
 
+chmod 600 .env
 set -a
 . ./.env
 set +a
