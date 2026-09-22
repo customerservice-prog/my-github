@@ -5,7 +5,11 @@ RUN npm install
 
 FROM node:22-alpine AS builder
 WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build \
+    REDIS_URL=redis://127.0.0.1:6379 \
+    SESSION_SECRET=build-only-session-secret-build-only \
+    MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
