@@ -14,7 +14,7 @@ const inputSchema=z.object({
   otp:z.string().trim().max(12).optional().default("")
 });
 
-type UserRow=SessionUser & { password_hash:string; two_factor_secret_enc:string|null };
+type UserRow=SessionUser & { password_hash:string; two_factor_secret_enc:string|null; disabled:boolean };
 type CountRow={count:string};
 type Attempt={attempts:number;window_start:string;locked_until:string|null};
 
@@ -45,7 +45,7 @@ export async function POST(request:Request){
     return NextResponse.json({error:"Too many attempts. Try again later."},{status:429});
   }
 
-  let user=await one<UserRow>("SELECT id,email,role,password_hash,two_factor_enabled,two_factor_secret_enc FROM users WHERE email=$1",[email]);
+  let user=await one<UserRow>("SELECT id,email,role,password_hash,two_factor_enabled,two_factor_secret_enc,disabled FROM users WHERE email=$1",[email]);
 
   if(!user){
     const count=await one<CountRow>("SELECT COUNT(*)::text count FROM users");
@@ -53,12 +53,12 @@ export async function POST(request:Request){
     const bootstrapPassword=process.env.BOOTSTRAP_ADMIN_PASSWORD;
     if(count?.count==="0" && bootstrapEmail===email && bootstrapPassword && parsed.data.password===bootstrapPassword){
       const hash=await bcrypt.hash(parsed.data.password,12);
-      user=await one<UserRow>("INSERT INTO users(email,password_hash,role) VALUES($1,$2,'OWNER') RETURNING id,email,role,password_hash,two_factor_enabled,two_factor_secret_enc",[email,hash]);
+      user=await one<UserRow>("INSERT INTO users(email,password_hash,role) VALUES($1,$2,'OWNER') RETURNING id,email,role,password_hash,two_factor_enabled,two_factor_secret_enc,disabled",[email,hash]);
       if(user) await audit(user.id,"AUTH_BOOTSTRAP","user",user.id);
     }
   }
 
-  if(!user || !(await bcrypt.compare(parsed.data.password,user.password_hash))){
+  if(!user || user.disabled || !(await bcrypt.compare(parsed.data.password,user.password_hash))){
     await registerFailure(key);
     return NextResponse.json({error:"Invalid credentials"},{status:401});
   }
@@ -76,6 +76,7 @@ export async function POST(request:Request){
   }
 
   await query("DELETE FROM login_attempts WHERE key=$1",[key]);
+  await query("UPDATE users SET last_login_at=NOW(),updated_at=NOW() WHERE id=$1",[user.id]);
   await issueSession(user);
   await audit(user.id,"AUTH_LOGIN","user",user.id);
   return NextResponse.json({ok:true});
