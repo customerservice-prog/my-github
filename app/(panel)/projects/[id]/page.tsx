@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { DeployButton, ProvisionDatabaseButton, RollbackButton, SecretForm } from "@/components/Forms";
 import { StatusPill } from "@/components/StatusPill";
+import { RuntimePanel } from "@/components/RuntimePanel";
 import { one, query } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
 
@@ -39,9 +40,15 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
         <div className="card-body stack">{managedDb?<div className="kv"><span>Managed PostgreSQL</span><strong>{managedDb.name} · {managedDb.username}@{managedDb.host}:{managedDb.port}</strong></div>:<ProvisionDatabaseButton projectId={project.id}/>}<SecretForm projectId={project.id}/>{envs.map(e=><div className="row-between" key={e.id}><div><strong className="small">{e.key}</strong><div className="row-sub">Updated {formatDate(e.updated_at)}</div></div><code>{e.secret?"••••••••":"stored"}</code></div>)}{!envs.length&&<div className="muted small">No environment variables stored.</div>}</div>
       </div>
     </section>
-    <section className="card section-gap">
-      <div className="card-header"><h2>Latest deployment log</h2>{latest&&<span className="muted tiny">#{latest.id}</span>}</div>
-      <div className="card-body"><div className="log">{logs.length?logs.reverse().map(l=>`[${l.level}] ${l.message}`).join("\n"):"No deployment log yet."}</div></div>
+    <section className="grid two-col section-gap">
+      <div className="card">
+        <div className="card-header"><h2>Latest deployment log</h2>{latest&&<span className="muted tiny">#{latest.id}</span>}</div>
+        <div className="card-body"><div className="log">{logs.length?logs.reverse().map(l=>`[${l.level}] ${l.message}`).join("\n"):"No deployment log yet."}</div></div>
+      </div>
+      <div className="card">
+        <div className="card-header"><h2>Runtime</h2><span className="muted tiny">Live from deployment agent</span></div>
+        <div className="card-body"><RuntimePanel projectId={project.id}/></div>
+      </div>
     </section>
   </>;
 }
