@@ -226,7 +226,7 @@ services:
     networks: [control, proxy]
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2026-09-19T17-05-25Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -280,7 +280,7 @@ services:
     networks: [control]
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.14.0
     restart: unless-stopped
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
     volumes:
@@ -289,7 +289,7 @@ services:
     networks: [control]
 
   node-exporter:
-    image: prom/node-exporter:latest
+    image: prom/node-exporter:v1.12.1
     restart: unless-stopped
     command: ["--path.rootfs=/host"]
     volumes:
@@ -297,7 +297,7 @@ services:
     networks: [control]
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
+    image: gcr.io/cadvisor/cadvisor:v0.60.6
     restart: unless-stopped
     privileged: true
     volumes:
@@ -309,7 +309,7 @@ services:
     networks: [control]
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.7.8
     restart: unless-stopped
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
@@ -317,19 +317,24 @@ services:
       - loki_data:/loki
     networks: [control]
 
-  promtail:
-    image: grafana/promtail:latest
+  alloy:
+    image: grafana/alloy:v1.19.2
     restart: unless-stopped
-    command: -config.file=/etc/promtail/config.yml
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
     volumes:
-      - ./observability/promtail.yml:/etc/promtail/config.yml:ro
-      - /var/log:/var/log:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./observability/alloy.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy
     networks: [control]
+    depends_on:
+      - loki
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.2.2
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
@@ -370,4 +375,5 @@ volumes:
   backup_control:
   prometheus_data:
   loki_data:
+  alloy_data:
   grafana_data:
