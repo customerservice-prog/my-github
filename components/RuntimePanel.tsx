@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 type RuntimeData={
-  status?:{status?:string;container?:string;startedAt?:string;restartCount?:number};
+  status?:{status?:string;container?:string;maintenance?:boolean;startedAt?:string;restartCount?:number};
   logs?:string;
   container?:string|null;
 };
@@ -24,6 +24,24 @@ export function RuntimePanel({projectId}:{projectId:number}){
     }catch(error){
       setError(error instanceof Error?error.message:"Runtime unavailable");
     }finally{
+      setBusy(false);
+    }
+  }
+
+  async function maintenance(enabled:boolean){
+    setBusy(true);
+    setError("");
+    try{
+      const response=await fetch("/api/projects/"+projectId+"/runtime",{
+        method:"POST",
+        headers:{"content-type":"application/json"},
+        body:JSON.stringify({action:"maintenance",enabled})
+      });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok) throw new Error(result.error||"Maintenance change failed");
+      await refresh();
+    }catch(error){
+      setError(error instanceof Error?error.message:"Maintenance change failed");
       setBusy(false);
     }
   }
@@ -55,9 +73,10 @@ export function RuntimePanel({projectId}:{projectId:number}){
       <div className="action-inline">
         <button className="ghost-button" disabled={busy} onClick={refresh}>{busy?"Checking…":"Refresh"}</button>
         <button className="secondary-button" disabled={busy||data?.status?.status!=="RUNNING"} onClick={restart}>Restart</button>
+        <button className={data?.status?.maintenance?"primary-button":"ghost-button"} disabled={busy||data?.status?.status!=="RUNNING"} onClick={()=>maintenance(!data?.status?.maintenance)}>{data?.status?.maintenance?"Restore traffic":"Maintenance"}</button>
       </div>
     </div>
-    {data?.status?.startedAt&&<div className="tiny muted">Started {new Date(data.status.startedAt).toLocaleString()} · restarts {data.status.restartCount??0}</div>}
+    {data?.status?.startedAt&&<div className="tiny muted">Started {new Date(data.status.startedAt).toLocaleString()} · restarts {data.status.restartCount??0}{data.status.maintenance?" · maintenance active":""}</div>}
     {error&&<div className="form-error">{error}</div>}
     <div className="log">{data?.logs||"Load runtime status to view recent application logs."}</div>
   </div>;
