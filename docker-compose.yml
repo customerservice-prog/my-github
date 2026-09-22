@@ -158,6 +158,8 @@ services:
       - traefik.http.routers.control-status.entrypoints=websecure
       - traefik.http.routers.control-status.tls.certresolver=letsencrypt
       - traefik.http.routers.control-status.service=control
+      - traefik.http.routers.control-status.middlewares=control-status-path
+      - traefik.http.middlewares.control-status-path.replacepath.path=/status
 
   worker:
     build:
