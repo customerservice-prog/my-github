@@ -10,7 +10,7 @@ cd /opt/my-github-agent
 cat > compose.yml <<EOF
 services:
   traefik:
-    image: traefik:v3.5
+    image: traefik:v3.7
     restart: unless-stopped
     command:
       - --providers.file.directory=/dynamic
