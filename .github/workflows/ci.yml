@@ -11,7 +11,21 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: migration_test
+          POSTGRES_USER: migration_test
+          POSTGRES_PASSWORD: migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U migration_test -d migration_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,6 +35,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run runtime-check
+      - name: Validate shell scripts
+        run: bash -n scripts/bootstrap.sh ops/backup/*.sh ops/remote-node/install.sh
+      - name: Apply database migrations
+        run: npm run migrate
+        env:
+          DATABASE_URL: postgresql://migration_test:migration_test@127.0.0.1:5432/migration_test
       - run: npm run build
         env:
           DATABASE_URL: postgresql://user:pass@localhost:5432/test
