@@ -5,6 +5,7 @@ mkdir -p /tmp/dumps
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 platform_dump="/tmp/dumps/platform-${timestamp}.sql.gz"
 forgejo_dump="/tmp/dumps/forgejo-${timestamp}.sql.gz"
+app_dump="/tmp/dumps/app-databases-${timestamp}.sql.gz"
 
 report() {
   local status="$1"
@@ -20,6 +21,7 @@ trap fail ERR
 
 pg_dump "${PLATFORM_DATABASE_URL}" | gzip -9 > "${platform_dump}"
 pg_dump "${FORGEJO_DATABASE_URL}" | gzip -9 > "${forgejo_dump}"
+pg_dumpall --dbname="${APP_DATABASE_ADMIN_URL}" | gzip -9 > "${app_dump}"
 
 if ! restic snapshots >/dev/null 2>&1; then
   restic init
