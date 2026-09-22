@@ -128,6 +128,8 @@ export function CreateProjectForm({ servers }: { servers: ServerOption[] }) {
         repoUrl: f.get("repoUrl"),
         domain: f.get("domain"),
         branch: f.get("branch") || "main",
+        stagingDomain: f.get("stagingDomain") || "",
+        stagingBranch: f.get("stagingBranch") || "staging",
         dockerfile: f.get("dockerfile") || "Dockerfile",
         containerPort: Number(f.get("containerPort") || 3000),
         healthPath: f.get("healthPath") || "/api/health",
@@ -142,7 +144,9 @@ export function CreateProjectForm({ servers }: { servers: ServerOption[] }) {
       <label>Forgejo repository<input name="repoFullName" placeholder="admin/rentsketch" required /></label>
       <label>Clone URL<input name="repoUrl" type="url" placeholder="https://git.example.com/admin/rentsketch.git" required /></label>
       <label>Production domain<input name="domain" placeholder="rentsketch.com" required /></label>
-      <label>Branch<input name="branch" defaultValue="main" required /></label>
+      <label>Production branch<input name="branch" defaultValue="main" required /></label>
+      <label>Staging domain <span className="muted">(optional)</span><input name="stagingDomain" placeholder="staging.rentsketch.com" /></label>
+      <label>Staging branch<input name="stagingBranch" defaultValue="staging" required /></label>
       <label>Dockerfile<input name="dockerfile" defaultValue="Dockerfile" required /></label>
       <label>Container port<input name="containerPort" type="number" defaultValue="3000" min="1" max="65535" required /></label>
       <label>Health path<input name="healthPath" defaultValue="/api/health" required /></label>
@@ -153,10 +157,11 @@ export function CreateProjectForm({ servers }: { servers: ServerOption[] }) {
   </form>;
 }
 
-export function DeployButton({ projectId }: { projectId: number }) {
+export function DeployButton({ projectId, environment = "production" }: { projectId: number; environment?: "production" | "staging" }) {
   const a = useAction();
+  const label=environment==="staging"?"Deploy staging":"Deploy production";
   return <div className="action-inline">
-    <button className="primary-button" disabled={a.busy} onClick={() => a.run(() => send("/api/projects/" + projectId + "/deploy", {})).catch(() => {})}>{a.busy ? "Queued…" : "Deploy now"}</button>
+    <button className={environment==="staging"?"secondary-button":"primary-button"} disabled={a.busy} onClick={() => a.run(() => send("/api/projects/" + projectId + "/deploy", {environment})).catch(() => {})}>{a.busy ? "Queued…" : label}</button>
     {a.error && <span className="form-error">{a.error}</span>}
   </div>;
 }
