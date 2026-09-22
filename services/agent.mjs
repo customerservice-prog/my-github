@@ -53,25 +53,42 @@ function minioHost(){
   return url.toString();
 }
 
+async function mc(args,options={}){
+  const result=await execFileAsync("mc",args,{
+    maxBuffer:4*1024*1024,
+    env:{...process.env,MC_HOST_local:minioHost(),...(options.env||{})}
+  });
+  return {stdout:String(result.stdout||""),stderr:String(result.stderr||"")};
+}
+
+async function mcWithInput(args,input,extraEnv={}){
+  await new Promise((resolve,reject)=>{
+    const child=spawn("mc",args,{
+      stdio:["pipe","pipe","pipe"],
+      env:{...process.env,MC_HOST_local:minioHost(),...extraEnv}
+    });
+    let stderr="";
+    child.stderr.on("data",chunk=>stderr+=chunk);
+    child.on("error",reject);
+    child.on("close",code=>code===0?resolve():reject(new Error(stderr||"mc exited "+code)));
+    child.stdin.end(input);
+  });
+}
+
 async function provisionStorage({projectSlug,bucket,accessKey,secretKey}){
   if(!validSlug(projectSlug)) throw new Error("Invalid project slug");
   if(!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error("Invalid bucket name");
   if(!/^[A-Z0-9]{16,32}$/.test(accessKey)) throw new Error("Invalid object storage access key");
   if(secretKey.length<32||secretKey.length>80) throw new Error("Invalid object storage secret key");
-  const image=process.env.MINIO_MC_IMAGE||"minio/mc:latest";
-  const common=["run","--rm","--network","platform-control","-e","MC_HOST_local"];
-  const hostEnv={MC_HOST_local:minioHost()};
 
-  await dockerWithEnv([...common,image,"mb","--ignore-existing","local/"+bucket],hostEnv);
+  await mc(["mb","--ignore-existing","local/"+bucket]);
 
-  await dockerWithEnv([
-    ...common,
-    "-e","PROJECT_ACCESS_KEY",
-    "-e","PROJECT_SECRET_KEY",
-    "--entrypoint","/bin/sh",
-    image,
-    "-c",'mc admin user add local "$PROJECT_ACCESS_KEY" "$PROJECT_SECRET_KEY"'
-  ],{...hostEnv,PROJECT_ACCESS_KEY:accessKey,PROJECT_SECRET_KEY:secretKey});
+  try{
+    await mc(["admin","user","add","local",accessKey,secretKey]);
+  }catch(error){
+    const message=error instanceof Error?error.message:String(error);
+    if(!/already exists/i.test(message)) throw error;
+  }
 
   const policyName=("bucket-"+projectSlug+"-"+accessKey.slice(-8)).toLowerCase();
   const policy=JSON.stringify({
@@ -82,22 +99,8 @@ async function provisionStorage({projectSlug,bucket,accessKey,secretKey}){
     ]
   });
 
-  await dockerWithInput([
-    ...common,
-    "-e","POLICY_NAME",
-    "--entrypoint","/bin/sh",
-    image,
-    "-c",'mc admin policy create local "$POLICY_NAME" /dev/stdin'
-  ],policy,{...hostEnv,POLICY_NAME:policyName});
-
-  await dockerWithEnv([
-    ...common,
-    "-e","PROJECT_ACCESS_KEY",
-    "-e","POLICY_NAME",
-    "--entrypoint","/bin/sh",
-    image,
-    "-c",'mc admin policy attach local "$POLICY_NAME" --user "$PROJECT_ACCESS_KEY"'
-  ],{...hostEnv,PROJECT_ACCESS_KEY:accessKey,POLICY_NAME:policyName});
+  await mcWithInput(["admin","policy","create","local",policyName,"/dev/stdin"],policy);
+  await mc(["admin","policy","attach","local",policyName,"--user",accessKey]);
 
   return {
     ok:true,
