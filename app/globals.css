@@ -49,7 +49,7 @@ code { background: #07121c; border: 1px solid var(--line); border-radius: 8px; p
 .page-header p { color: var(--muted); margin: 8px 0 0; max-width: 720px; }
 .eyebrow { color: var(--accent); font-size: 10px; letter-spacing: .18em; font-weight: 800; }
 .grid { display: grid; gap: 16px; }
-.stats-grid { grid-template-columns: repeat(4,minmax(0,1fr)); margin-bottom: 18px; }
+.stats-grid { grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); margin-bottom: 18px; }
 .two-col { grid-template-columns: minmax(0,1.5fr) minmax(280px,.7fr); }
 .card { border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(180deg,rgba(18,32,46,.88),rgba(10,21,31,.92)); box-shadow: 0 16px 50px rgba(0,0,0,.12); }
 .card.inset { padding: 18px; background: rgba(255,255,255,.025); box-shadow: none; }
