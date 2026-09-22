@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { DeployButton, ProvisionDatabaseButton, RollbackButton, SecretForm } from "@/components/Forms";
 import { StatusPill } from "@/components/StatusPill";
 import { RuntimePanel } from "@/components/RuntimePanel";
+import { VolumeForm } from "@/components/VolumeForm";
 import { one, query } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
 
@@ -10,15 +11,17 @@ type Env={id:number;key:string;secret:boolean;updated_at:string};
 type Deployment={id:number;status:string;commit_sha:string|null;image:string|null;error:string|null;queued_at:string;finished_at:string|null};
 type Log={message:string;level:string;created_at:string};
 type ManagedDb={name:string;username:string;host:string;port:number;created_at:string};
+type Volume={id:number;name:string;mount_path:string;created_at:string};
 
 export default async function ProjectPage({params}:{params:Promise<{id:string}>}){
   const {id}=await params;
   const project=await one<Project>(`SELECT p.*,s.name server_name,s.status server_status FROM projects p LEFT JOIN servers s ON s.id=p.server_id WHERE p.id=$1`,[Number(id)]);
   if(!project) notFound();
-  const [envs,deployments,managedDb]=await Promise.all([
+  const [envs,deployments,managedDb,volumes]=await Promise.all([
     query<Env>("SELECT id,key,secret,updated_at FROM project_env WHERE project_id=$1 ORDER BY key",[project.id]),
     query<Deployment>("SELECT id,status,commit_sha,image,error,queued_at,finished_at FROM deployments WHERE project_id=$1 ORDER BY id DESC LIMIT 20",[project.id]),
-    one<ManagedDb>("SELECT name,username,host,port,created_at FROM project_databases WHERE project_id=$1",[project.id])
+    one<ManagedDb>("SELECT name,username,host,port,created_at FROM project_databases WHERE project_id=$1",[project.id]),
+    query<Volume>("SELECT id,name,mount_path,created_at FROM project_volumes WHERE project_id=$1 ORDER BY name",[project.id])
   ]);
   const latest=deployments[0];
   const logs=latest?await query<Log>("SELECT message,level,created_at FROM deployment_logs WHERE deployment_id=$1 ORDER BY id DESC LIMIT 120",[latest.id]):[];
@@ -38,6 +41,13 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
       <div className="card">
         <div className="card-header"><h2>Environment</h2><span className="muted tiny">AES-256-GCM encrypted</span></div>
         <div className="card-body stack">{managedDb?<div className="kv"><span>Managed PostgreSQL</span><strong>{managedDb.name} · {managedDb.username}@{managedDb.host}:{managedDb.port}</strong></div>:<ProvisionDatabaseButton projectId={project.id}/>}<SecretForm projectId={project.id}/>{envs.map(e=><div className="row-between" key={e.id}><div><strong className="small">{e.key}</strong><div className="row-sub">Updated {formatDate(e.updated_at)}</div></div><code>{e.secret?"••••••••":"stored"}</code></div>)}{!envs.length&&<div className="muted small">No environment variables stored.</div>}</div>
+      </div>
+    </section>
+    <section className="card section-gap">
+      <div className="card-header"><h2>Persistent storage</h2><span className="muted tiny">Survives container replacements</span></div>
+      <div className="card-body stack">
+        <VolumeForm projectId={project.id}/>
+        {volumes.length?<div className="table-wrap"><table><thead><tr><th>Volume</th><th>Container path</th><th>Created</th></tr></thead><tbody>{volumes.map(v=><tr key={v.id}><td><code>{v.name}</code></td><td><code>{v.mount_path}</code></td><td>{formatDate(v.created_at)}</td></tr>)}</tbody></table></div>:<div className="muted small">No persistent volumes configured. Database-backed apps may not need one unless they also store local uploads or generated files.</div>}
       </div>
     </section>
     <section className="grid two-col section-gap">
