@@ -3,6 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 
 const execFileAsync=promisify(execFile);
 const port=Number(process.env.AGENT_PORT||7001);
@@ -305,7 +306,25 @@ const server=http.createServer(async(req,res)=>{
 
     if(req.method==="GET"&&url.pathname==="/health"){
       const version=await docker(["version","--format","{{.Server.Version}}"]);
-      return send(res,200,{status:"ok",docker:version,hostname:process.env.HOSTNAME||"agent"});
+      let disk={totalBytes:null,freeBytes:null};
+      try{
+        const stats=await fs.statfs("/");
+        disk={
+          totalBytes:Number(stats.blocks)*Number(stats.bsize),
+          freeBytes:Number(stats.bavail)*Number(stats.bsize)
+        };
+      }catch{}
+      const totalMemory=os.totalmem();
+      const freeMemory=os.freemem();
+      return send(res,200,{
+        status:"ok",
+        docker:version,
+        hostname:os.hostname(),
+        uptimeSeconds:Math.round(os.uptime()),
+        loadAverage:os.loadavg(),
+        memory:{totalBytes:totalMemory,freeBytes:freeMemory,usedPercent:totalMemory?Math.round((1-freeMemory/totalMemory)*1000)/10:null},
+        disk
+      });
     }
 
     if(req.method==="POST"&&url.pathname==="/deploy"){
