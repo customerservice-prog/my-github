@@ -81,6 +81,8 @@ async function processDeployment(deploymentId){
     FROM deployments d JOIN projects p ON p.id=d.project_id LEFT JOIN servers s ON s.id=p.server_id WHERE d.id=$1`,[deploymentId]);
   const job=rows[0];
   if(!job) return;
+  const deploymentState=(await sql("SELECT status FROM deployments WHERE id=$1",[deploymentId]))[0]?.status;
+  if(deploymentState!=="QUEUED") return;
   if(!job.server_id) throw new Error("No deployment server assigned");
   const deploySlug=job.target_slug||job.slug;
   const deployBranch=job.target_branch||job.branch;
