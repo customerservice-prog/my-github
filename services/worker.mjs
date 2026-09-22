@@ -123,9 +123,13 @@ async function processDeployment(deploymentId){
       await run("docker",["push",image]);
     }
 
-    const envRows=await sql("SELECT key,value_enc FROM project_env WHERE project_id=$1 ORDER BY key",[job.project_id]);
+    const [envRows,volumeRows]=await Promise.all([
+      sql("SELECT key,value_enc FROM project_env WHERE project_id=$1 ORDER BY key",[job.project_id]),
+      sql("SELECT name,mount_path FROM project_volumes WHERE project_id=$1 ORDER BY name",[job.project_id])
+    ]);
     const environment={};
     for(const row of envRows) environment[row.key]=decrypt(row.value_enc);
+    const mounts=volumeRows.map(row=>({name:row.name,mountPath:row.mount_path}));
 
     await db.query("UPDATE deployments SET status='DEPLOYING' WHERE id=$1",[deploymentId]);
     await addLog(deploymentId,"Starting health-checked candidate on "+job.base_url);
@@ -140,7 +144,8 @@ async function processDeployment(deploymentId){
         domain:job.domain,
         containerPort:job.container_port,
         healthPath:job.health_path,
-        env:environment
+        env:environment,
+        mounts
       }),
       signal:AbortSignal.timeout(180000)
     });
