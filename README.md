@@ -1,139 +1,271 @@
 # My GitHub — Private Developer Cloud
 
-This repository is a self-hosted source-control and deployment platform designed to replace the day-to-day workflow of GitHub + Railway/Vercel with infrastructure you control.
+My GitHub is a self-hosted source-control and application deployment platform. It is designed to replace the everyday GitHub + Railway/Vercel workflow with infrastructure you control.
 
-It combines:
+## Included
 
-- Forgejo for Git repositories, branches, commits, SSH/HTTPS cloning, packages and Actions support.
-- A custom Next.js control plane for projects, repository imports, servers, encrypted environment variables, deployments, backups, audit history and owner security.
-- A dedicated build worker that turns a Git commit into an immutable Docker image and pushes it to your private OCI registry.
-- A lightweight deployment agent that starts a candidate container, health-checks it, atomically changes Traefik routing, then retires the previous container.
-- PostgreSQL for platform metadata.
-- Redis for durable deployment queueing.
-- MinIO for S3-compatible object storage.
-- Traefik for domains, HTTPS and automatic certificate renewal.
-- Restic for encrypted snapshot backups and retention.
-- Prometheus + Grafana + cAdvisor + node-exporter for metrics.
-- Loki + Promtail for centralized container logs.
-- Uptime Kuma for outside-in service checks and notifications.
+- Forgejo for Git repositories, branches, commits, SSH/HTTPS cloning, packages and Actions.
+- A custom Next.js control plane for projects, repositories, deployment history, servers, runtime logs, storage, backups, monitoring and audit history.
+- PostgreSQL for platform metadata plus a separate managed application PostgreSQL service.
+- Redis for the deployment queue.
+- A build worker that turns an exact Git commit into an immutable Docker image.
+- Forgejo's private OCI/container registry.
+- Deployment agents for local or remote Docker hosts.
+- Traefik for HTTPS, domains and atomic route changes.
+- MinIO for S3-compatible project object storage.
+- Restic for encrypted backups and retention.
+- Prometheus, Grafana, cAdvisor and node-exporter for infrastructure metrics.
+- Loki and Promtail for container logs.
+- A built-in public status page with no separate setup.
 
-## What works
+## Deployment safety
 
-The launch path is intentionally simple:
+A normal production deploy is:
 
-1. Create or import a repository.
-2. Register a local or remote deployment server.
-3. Create a project and attach its repository, branch, domain, Dockerfile, port and health endpoint.
-4. Add encrypted environment variables.
-5. Click Deploy or push to the configured branch through the signed Forgejo webhook.
-6. The worker clones the exact revision, builds and pushes an immutable image.
-7. The agent launches a candidate and waits for its health URL.
-8. Only after a successful health check does Traefik switch traffic.
-9. Failed candidates are removed while the current production route stays untouched.
+1. Receive a manual request or signed Forgejo push event.
+2. Queue one deployment record in Redis/PostgreSQL.
+3. Clone the configured branch or exact webhook revision.
+4. Build an immutable Docker image tagged by commit SHA.
+5. Push the image to the private registry.
+6. Start a new candidate container without touching the current production route.
+7. Call the application's readiness endpoint over the private Docker network.
+8. Atomically update Traefik only after the candidate becomes healthy.
+9. Remove the previous production container.
+10. Mark the deployment healthy and retain the prior image for rollback.
 
-## Requirements
+A failed candidate is removed while the current live route stays unchanged.
 
-- Linux server with Docker Engine and Docker Compose v2.
-- At least 4 CPU cores, 8 GB RAM and SSD storage for a comfortable all-in-one install. More is recommended if you build large applications on the same host.
-- Public DNS records for the control, Git, storage, Grafana and status domains.
-- Ports 80 and 443 reachable for HTTPS issuance.
-- Port 2222 reachable only if you want Forgejo SSH Git access from outside.
-- A separate off-site backup target for real disaster recovery.
+Queued releases can be canceled before a builder claims them.
+
+Prior immutable images can be rolled back without rebuilding old source.
+
+## Environments
+
+Each project supports:
+
+- Production domain + branch.
+- Optional staging domain + branch.
+- One-off branch previews under PREVIEW_BASE_DOMAIN.
+- Automatic production/staging deploys from signed Forgejo push webhooks.
+- Preview teardown, including preview-only containers, routes and volumes.
+
+Project environment values are scoped to:
+
+- production
+- staging
+- preview
+- all
+
+Production database/object-storage credentials are not automatically copied into staging or preview.
+
+## Persistent data
+
+Projects can provision:
+
+### Managed PostgreSQL
+
+The platform creates a separate database and login for a project, generates a strong password and stores DATABASE_URL encrypted in the production environment.
+
+The password can be rotated without exposing the replacement credential in the UI.
+
+### S3-compatible object storage
+
+One click creates:
+
+- a dedicated MinIO bucket
+- a dedicated MinIO user
+- a bucket-only access policy
+- encrypted S3 environment credentials for the production app
+
+### Persistent Docker volumes
+
+Add named project volumes and mount paths such as:
+
+    uploads -> /app/uploads
+
+The volume remains attached across container replacements. Preview/staging runtimes receive runtime-specific Docker volume names, keeping them separate from production data.
+
+## Monitoring
+
+The worker checks:
+
+- deployment-agent health every 30 seconds
+- production and staging public HTTPS health endpoints every minute
+
+Health history includes:
+
+- status
+- HTTP response code
+- latency
+- error
+- timestamp
+
+Set ALERT_WEBHOOK_URL to receive JSON notifications when a site or deployment server changes between healthy/offline states.
+
+Grafana starts with a provisioned Platform Operations dashboard. Loki is already configured as its log source.
+
+STATUS_DOMAIN routes to the built-in public status page. It exposes only aggregate service health, not repository names, secrets, customer information or private infrastructure addresses.
+
+## Backups and recovery
+
+The backup service captures:
+
+- platform PostgreSQL
+- Forgejo PostgreSQL
+- all managed application PostgreSQL databases
+- Forgejo repository/application data
+- MinIO object data
+
+Restic retention keeps:
+
+- 7 daily snapshots
+- 5 weekly snapshots
+- 12 monthly snapshots
+
+The Backups page can run a restore drill for the platform or Forgejo database.
+
+Restore drills are deliberately non-destructive:
+
+- the selected Restic snapshot is restored into a temporary workspace
+- a new inspection database is created
+- the live database is never overwritten
+- the inspection database can be deleted separately after verification
+
+The default local RESTIC_REPOSITORY is suitable only for initial testing. Production must use an off-site repository in a separate failure domain.
+
+See docs/DISASTER_RECOVERY.md.
+
+## Project lifecycle
+
+Projects are archived rather than hard-deleted.
+
+Archiving:
+
+- disables auto-deploy
+- hides the project from the active project list
+- preserves repository references
+- preserves databases
+- preserves object storage
+- preserves Docker volumes
+- preserves deployment history
+- can be reversed from Archived Projects
 
 ## First boot
+
+Requirements:
+
+- Linux
+- Docker Engine
+- Docker Compose v2
+- public DNS pointing at the server
+- ports 80/443 available
+- port 2222 only if Forgejo SSH cloning should be public
+- recommended starting point: 4+ CPU cores, 8+ GB RAM and SSD storage
+
+Create the production environment file:
 
 ~~~sh
 cp .env.example .env
 nano .env
 ~~~
 
-Replace every placeholder. Generate strong values, for example:
+Generate independent random secrets. Examples:
 
 ~~~sh
 openssl rand -base64 48
 openssl rand -base64 32
 ~~~
 
-MASTER_KEY must decode to exactly 32 bytes. Never rotate MASTER_KEY without first decrypting/re-encrypting stored secrets.
+MASTER_KEY must decode to exactly 32 bytes. Do not rotate it casually: it encrypts saved project environment values and server-agent credentials.
 
-Point DNS records at the server, then:
+Configure DNS for:
+
+- CONTROL_DOMAIN
+- GIT_DOMAIN
+- STORAGE_DOMAIN
+- STORAGE_CONSOLE_DOMAIN
+- GRAFANA_DOMAIN
+- STATUS_DOMAIN
+- *.PREVIEW_BASE_DOMAIN if previews are wanted
+
+Then:
 
 ~~~sh
-chmod +x scripts/bootstrap.sh ops/backup/*.sh
+chmod +x scripts/bootstrap.sh ops/backup/*.sh ops/remote-node/install.sh
 ./scripts/bootstrap.sh
 ~~~
 
-The bootstrap script refuses to launch while obvious placeholder values remain.
+Bootstrap refuses to start while obvious placeholder values remain.
 
-The first control-plane login uses BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD and writes a bcrypt password hash to PostgreSQL. Enable authenticator MFA from Settings immediately after login.
+It:
 
-## Required first server
+- loads .env
+- starts the databases, Redis, Forgejo, Traefik and MinIO
+- creates the Forgejo administrator if needed
+- builds and starts the custom control plane, worker, agent, backup and observability stack
+- waits for the control plane to become healthy
+- automatically registers the local deployment agent
 
-For an all-in-one install, register:
+The first control-panel login uses BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD. The password is stored as a bcrypt hash. Enable authenticator MFA immediately afterward.
 
-- Name: Local Production
-- Agent URL: http://agent:7001
-- Token: the LOCAL_AGENT_TOKEN value from the server environment
+## Repository setup
 
-The control plane and agent share the private Docker control network, so that URL is intentionally not public.
+Repositories can be created directly in the Repositories page or imported from any Git clone URL.
 
-## Auto deploy webhook
+When a project is created, My GitHub automatically creates or updates its signed Forgejo push webhook. The webhook listens for pushes but the receiver only queues branches configured as production/staging targets.
 
-Configure the Forgejo repository push webhook to:
-
-    https://YOUR_CONTROL_DOMAIN/api/webhooks/forgejo
-
-Use WEBHOOK_SECRET as the webhook secret. The receiver accepts Forgejo/Gitea HMAC SHA-256 signatures and ignores branches that are not the project's configured production branch.
+Forgejo remains available directly at GIT_DOMAIN for deeper Git features such as pull requests, branch protection, SSH keys, tags, packages and Actions.
 
 ## Application contract
 
-A deployable application should contain a Dockerfile and expose a real readiness endpoint such as:
+The simplest application contains a Dockerfile and a real readiness endpoint, for example:
 
     GET /api/health -> 200
 
-The endpoint should verify enough of the application to prove it can serve traffic. For database-backed applications, include a lightweight database connectivity check.
+The app must listen on the configured container port.
 
-Do not store application secrets in Git. Add them through the project's Environment panel.
+The health endpoint should prove the app can actually serve traffic. Database-backed apps should include a lightweight database connectivity check.
 
-## Backups
-
-The bundled backup service captures:
-
-- platform PostgreSQL
-- Forgejo PostgreSQL
-- Forgejo repository/application data
-- MinIO object data
-
-Restic retention keeps 7 daily, 5 weekly and 12 monthly snapshots.
-
-The default RESTIC_REPOSITORY is a local Docker volume only for initial testing. Before production, use off-site S3-compatible storage. See docs/DISASTER_RECOVERY.md.
+Do not commit production secrets. Store them in the project's Environment panel.
 
 ## Remote deployment nodes
 
-The all-in-one node is not the only topology. services/agent.mjs is designed to run beside Docker on separate production servers.
+Run the installer from a checked-out copy of this repository on the remote Docker server:
 
-Never expose the agent directly to the public internet. Put it behind WireGuard/Tailscale/private networking or another authenticated private network.
+~~~sh
+AGENT_TOKEN='a-long-random-token' \
+ACME_EMAIL='admin@example.com' \
+AGENT_BIND_ADDRESS='PRIVATE_OR_VPN_IP' \
+sh ops/remote-node/install.sh
+~~~
 
-The remote-node installer in ops/remote-node is a reference bootstrap. Build and publish the agent image from this repository before using that script.
+The installer copies and builds Dockerfile.agent/services/agent.mjs locally. It does not depend on a placeholder public container image.
+
+Register the private agent URL in Servers. Do not expose port 7001 to the public internet.
 
 ## Validation
 
-~~~sh
-npm install
-npm run typecheck
-npm test
-npm run build
-cp .env.example .env
-docker compose config --quiet
-~~~
+GitHub Actions currently validates each commit while this bootstrap repository still lives on GitHub. CI performs:
 
-GitHub Actions runs these checks on pushes while this project is still being developed on GitHub.
+- npm install
+- TypeScript typecheck
+- Node tests
+- worker/agent syntax validation
+- shell syntax validation
+- every numbered SQL migration against a real PostgreSQL 18 service
+- Next.js production build
+- control/worker/agent/backup Docker image builds
+- Docker Compose configuration validation
 
-## Important boundaries
+The platform itself does not require GitHub after installation.
 
-This platform deliberately uses proven Git and container primitives instead of reimplementing Git object storage. Forgejo is the Git engine. The custom control plane is the private developer-cloud experience and deployment orchestration layer.
+## Security boundary
 
-The platform can be used without GitHub once it is installed. GitHub is only the current bootstrap location for this repository.
+The worker and deployment agent mount the Docker socket and therefore have host-level power. This first release is for owner-controlled/private repositories.
+
+Do not expose it as an untrusted public multi-tenant build service without replacing the Docker-socket builder with a hardened sandbox.
+
+See docs/SECURITY.md.
 
 ## Documentation
 
