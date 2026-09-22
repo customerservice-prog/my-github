@@ -180,6 +180,7 @@ async function pollServers(){
     const servers=await sql("SELECT id,name,status,base_url,agent_token_enc FROM servers ORDER BY id");
     await Promise.all(servers.map(async server=>{
       let online=false;
+      let metrics={};
       try{
         const token=decrypt(server.agent_token_enc);
         const response=await fetch(server.base_url.replace(/\/$/,"")+"/health",{
@@ -187,11 +188,12 @@ async function pollServers(){
           signal:AbortSignal.timeout(5000)
         });
         online=response.ok;
+        if(response.ok) metrics=await response.json().catch(()=>({}));
       }catch{}
       const nextStatus=online?"ONLINE":"OFFLINE";
       await db.query(
-        "UPDATE servers SET status=$1,last_seen=CASE WHEN $1='ONLINE' THEN NOW() ELSE last_seen END,updated_at=NOW() WHERE id=$2",
-        [nextStatus,server.id]
+        "UPDATE servers SET status=$1,last_seen=CASE WHEN $1='ONLINE' THEN NOW() ELSE last_seen END,metrics=$3::jsonb,updated_at=NOW() WHERE id=$2",
+        [nextStatus,server.id,JSON.stringify(metrics)]
       );
       if(server.status && server.status!=="UNKNOWN" && server.status!==nextStatus){
         await transitionAlert({
