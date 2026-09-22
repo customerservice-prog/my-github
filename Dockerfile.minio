@@ -7,8 +7,11 @@ RUN LDFLAGS="$(go run buildscripts/gen-ldflags.go)" && \
     CGO_ENABLED=0 go build -tags kqueue -trimpath --ldflags "$LDFLAGS" -o /out/minio .
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates && addgroup -S minio && adduser -S -G minio minio
+RUN apk add --no-cache ca-certificates && \
+    addgroup -S minio && adduser -S -G minio minio && \
+    mkdir -p /data && chown -R minio:minio /data
 COPY --from=build /out/minio /usr/local/bin/minio
+COPY --from=build /src/LICENSE /licenses/LICENSE
 USER minio
 WORKDIR /data
 EXPOSE 9000 9001
