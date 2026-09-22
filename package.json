@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
     "check": "npm run typecheck && npm test && npm run build",
-    "runtime-check": "node --check services/worker.mjs && node --check services/agent.mjs",
+    "runtime-check": "node --check services/worker.mjs && node --check services/agent.mjs && node --check scripts/preflight.mjs",
     "preflight": "node scripts/preflight.mjs"
   },
   "dependencies": {
