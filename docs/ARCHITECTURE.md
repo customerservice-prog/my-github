@@ -79,3 +79,13 @@ The next safe split is:
 - backup target: separate physical/provider failure domain
 
 The database schema already models multiple deployment servers.
+
+## Observability
+
+Prometheus scrapes node-exporter, cAdvisor and itself on the private control network.
+
+Grafana is provisioned with Prometheus and Loki data sources plus the Platform Operations dashboard.
+
+Grafana Alloy discovers Docker containers from the read-only Docker socket and forwards container logs to Loki. Promtail is not used.
+
+The control worker separately performs external HTTPS health checks for production/staging applications and private deployment-agent health/resource checks. Those checks drive the dashboard/status page and optional ALERT_WEBHOOK_URL transition notifications.
