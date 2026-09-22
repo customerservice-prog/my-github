@@ -2,6 +2,7 @@ FROM golang:1.24.8-alpine AS mc-build
 ARG MC_VERSION=RELEASE.2025-08-13T08-35-41Z
 RUN apk add --no-cache git ca-certificates build-base
 WORKDIR /src
+RUN mkdir -p /out
 RUN git clone --depth 1 --branch "${MC_VERSION}" https://github.com/minio/mc.git .
 RUN LDFLAGS="$(go run buildscripts/gen-ldflags.go)" && \
     GO111MODULE=on CGO_ENABLED=0 go build -tags kqueue -trimpath --ldflags "$LDFLAGS" -o /out/mc .
