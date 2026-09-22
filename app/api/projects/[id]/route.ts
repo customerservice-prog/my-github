@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { one, query } from "@/lib/db";
 import { ensureDeployWebhook } from "@/lib/forgejo";
 import { validDomain } from "@/lib/utils";
+import { assertForgejoProjectUrl } from "@/lib/network";
 
 const schema=z.object({
   repoFullName:z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
@@ -28,6 +29,10 @@ export async function PATCH(request:Request,{params}:{params:Promise<{id:string}
   const parsed=schema.safeParse(await request.json().catch(()=>null));
   if(!parsed.success) return NextResponse.json({error:"Invalid project configuration",issues:parsed.error.issues},{status:400});
   if(!validDomain(parsed.data.domain)) return NextResponse.json({error:"Invalid production domain"},{status:400});
+  let safeRepoUrl:string;
+  try{safeRepoUrl=assertForgejoProjectUrl(parsed.data.repoUrl);}catch(error){
+    return NextResponse.json({error:error instanceof Error?error.message:"Invalid project repository URL"},{status:400});
+  }
   if(parsed.data.stagingDomain && !validDomain(parsed.data.stagingDomain)) return NextResponse.json({error:"Invalid staging domain"},{status:400});
   const {id}=await params;
   const project=await one<Project>("SELECT id,archived_at FROM projects WHERE id=$1",[Number(id)]);
@@ -42,7 +47,7 @@ export async function PATCH(request:Request,{params}:{params:Promise<{id:string}
     dockerfile=$7,container_port=$8,health_path=$9,server_id=$10,auto_deploy=$11,updated_at=NOW()
     WHERE id=$12`,[
       parsed.data.repoFullName,
-      parsed.data.repoUrl,
+      safeRepoUrl,
       parsed.data.domain,
       parsed.data.branch,
       parsed.data.stagingDomain||null,
