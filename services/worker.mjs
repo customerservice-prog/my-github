@@ -77,13 +77,18 @@ async function registryLogin(){
 async function processDeployment(deploymentId){
   const rows=await sql(`SELECT d.id,d.requested_commit,d.commit_sha prebuilt_commit,d.image prebuilt_image,d.environment,d.target_slug,d.target_branch,d.target_domain,
     p.id project_id,p.name,p.slug,p.repo_url,p.branch,p.dockerfile,p.domain,p.container_port,p.health_path,
-    s.id server_id,s.base_url,s.agent_token_enc
+    s.id server_id,s.base_url,s.agent_token_enc,s.draining server_draining
     FROM deployments d JOIN projects p ON p.id=d.project_id LEFT JOIN servers s ON s.id=p.server_id WHERE d.id=$1`,[deploymentId]);
   const job=rows[0];
   if(!job) return;
   const deploymentState=(await sql("SELECT status FROM deployments WHERE id=$1",[deploymentId]))[0]?.status;
   if(deploymentState!=="QUEUED") return;
   if(!job.server_id) throw new Error("No deployment server assigned");
+  if(job.server_draining){
+    await db.query("UPDATE deployments SET status='CANCELLED',error='Deployment server entered drain mode before the job started',finished_at=NOW() WHERE id=$1",[deploymentId]);
+    await addLog(deploymentId,"Deployment canceled because the assigned server is draining","WARN");
+    return;
+  }
   const deploySlug=job.target_slug||job.slug;
   const deployBranch=job.target_branch||job.branch;
   const deployDomain=job.target_domain||job.domain;
