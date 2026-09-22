@@ -176,3 +176,18 @@ Recommended order:
 6. revenue/operations-critical production system
 
 Keep the previous host/provider available during a rollback window until the new platform has proven deployment, backup and restore behavior.
+
+## Native Forgejo CI
+
+Before retiring GitHub as the bootstrap source:
+
+- Import this repository into Forgejo.
+- Confirm Actions is enabled on the repository.
+- Generate a repository-scoped runner token.
+- Provision a separate CI machine.
+- Run `ops/forgejo-runner/install.sh` on that CI machine.
+- Confirm the runner appears under repository Settings -> Actions -> Runners.
+- Push a harmless commit.
+- Confirm `.forgejo/workflows/verify.yml` runs and passes.
+- Confirm the CI host is not the same machine as production databases/control services.
+- Restrict who can modify workflow files and who has direct push access to repositories assigned to the runner.
