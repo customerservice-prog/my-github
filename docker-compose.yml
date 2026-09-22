@@ -237,6 +237,11 @@ services:
     volumes:
       - minio_data:/data
     networks: [control, proxy]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     labels:
       - traefik.enable=true
       - traefik.docker.network=platform-proxy
