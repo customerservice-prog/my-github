@@ -189,6 +189,14 @@ export function BackupButton() {
   </div>;
 }
 
+export function ProvisionDatabaseButton({ projectId }: { projectId: number }) {
+  const a = useAction();
+  return <div className="action-inline">
+    <button className="secondary-button" disabled={a.busy} onClick={() => a.run(() => send("/api/projects/" + projectId + "/database", {})).catch(() => {})}>{a.busy ? "Provisioning…" : "Provision PostgreSQL"}</button>
+    {a.error && <span className="form-error">{a.error}</span>}
+  </div>;
+}
+
 export function RollbackButton({ deploymentId }: { deploymentId: number }) {
   const a = useAction();
   return <button className="ghost-button" disabled={a.busy} onClick={() => a.run(() => send("/api/deployments/" + deploymentId + "/rollback", {})).catch(() => {})}>{a.busy ? "Queueing…" : "Rollback"}</button>;
