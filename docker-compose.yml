@@ -182,6 +182,10 @@ services:
       AGENT_PORT: "7001"
       PROXY_NETWORK: platform-proxy
       CERT_RESOLVER: letsencrypt
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      STORAGE_ENDPOINT_INTERNAL: http://minio:9000
+      STORAGE_PUBLIC_URL: https://${STORAGE_DOMAIN}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - traefik_dynamic:/dynamic
