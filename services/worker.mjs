@@ -75,12 +75,17 @@ async function registryLogin(){
 }
 
 async function processDeployment(deploymentId){
-  const rows=await sql(`SELECT d.id,d.requested_commit,d.commit_sha prebuilt_commit,d.image prebuilt_image,p.id project_id,p.name,p.slug,p.repo_url,p.branch,p.dockerfile,p.domain,p.container_port,p.health_path,
+  const rows=await sql(`SELECT d.id,d.requested_commit,d.commit_sha prebuilt_commit,d.image prebuilt_image,d.environment,d.target_slug,d.target_branch,d.target_domain,
+    p.id project_id,p.name,p.slug,p.repo_url,p.branch,p.dockerfile,p.domain,p.container_port,p.health_path,
     s.id server_id,s.base_url,s.agent_token_enc
     FROM deployments d JOIN projects p ON p.id=d.project_id LEFT JOIN servers s ON s.id=p.server_id WHERE d.id=$1`,[deploymentId]);
   const job=rows[0];
   if(!job) return;
   if(!job.server_id) throw new Error("No deployment server assigned");
+  const deploySlug=job.target_slug||job.slug;
+  const deployBranch=job.target_branch||deployBranch;
+  const deployDomain=job.target_domain||job.domain;
+  const deployEnvironment=job.environment||"production";
 
   const workspace=await fs.mkdtemp(path.join(process.env.BUILD_WORKSPACE||os.tmpdir(),"mygithub-build-"));
   const source=path.join(workspace,"source");
@@ -95,8 +100,8 @@ async function processDeployment(deploymentId){
       await run("docker",["pull",image]);
     }else{
       await db.query("UPDATE deployments SET status='BUILDING',started_at=NOW(),error=NULL WHERE id=$1",[deploymentId]);
-      await addLog(deploymentId,"Cloning "+job.repo_url+" branch "+job.branch);
-      await run("git",["clone","--depth","1","--branch",job.branch,authenticatedRepoUrl(job.repo_url),source]);
+      await addLog(deploymentId,"Cloning "+job.repo_url+" branch "+deployBranch);
+      await run("git",["clone","--depth","1","--branch",deployBranch,authenticatedRepoUrl(job.repo_url),source]);
 
       if(job.requested_commit){
         const current=await run("git",["rev-parse","HEAD"],{cwd:source});
@@ -124,7 +129,10 @@ async function processDeployment(deploymentId){
     }
 
     const [envRows,volumeRows]=await Promise.all([
-      sql("SELECT key,value_enc FROM project_env WHERE project_id=$1 ORDER BY key",[job.project_id]),
+      sql(
+        "SELECT key,value_enc,environment FROM project_env WHERE project_id=$1 AND environment IN ('all',$2) ORDER BY CASE WHEN environment='all' THEN 0 ELSE 1 END,key",
+        [job.project_id,deployEnvironment]
+      ),
       sql("SELECT name,mount_path FROM project_volumes WHERE project_id=$1 ORDER BY name",[job.project_id])
     ]);
     const environment={};
@@ -138,10 +146,10 @@ async function processDeployment(deploymentId){
       method:"POST",
       headers:{"authorization":"Bearer "+token,"content-type":"application/json"},
       body:JSON.stringify({
-        projectSlug:job.slug,
+        projectSlug:deploySlug,
         deploymentId,
         image,
-        domain:job.domain,
+        domain:deployDomain,
         containerPort:job.container_port,
         healthPath:job.health_path,
         env:environment,
@@ -152,7 +160,7 @@ async function processDeployment(deploymentId){
     const result=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(result.error||"Deployment agent rejected release");
 
-    await addLog(deploymentId,"Traffic switched to "+sha.slice(0,12)+" after successful health check");
+    await addLog(deploymentId,"Traffic switched to "+sha.slice(0,12)+" on "+deployDomain+" after successful health check");
     await db.query("UPDATE deployments SET status='HEALTHY',finished_at=NOW() WHERE id=$1",[deploymentId]);
     await db.query("UPDATE servers SET status='ONLINE',last_seen=NOW(),updated_at=NOW() WHERE id=$1",[job.server_id]);
   }catch(error){
