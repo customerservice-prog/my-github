@@ -32,6 +32,12 @@ if(value("SESSION_SECRET").length<32) problems.push("SESSION_SECRET must be at l
 if(value("INTERNAL_API_TOKEN").length<32) problems.push("INTERNAL_API_TOKEN must be at least 32 characters");
 if(value("LOCAL_AGENT_TOKEN").length<24) problems.push("LOCAL_AGENT_TOKEN must be at least 24 characters");
 if(value("WEBHOOK_SECRET").length<24) problems.push("WEBHOOK_SECRET must be at least 24 characters");
+const uriSafePassword=/^[A-Za-z0-9._~-]+$/;
+for(const key of ["POSTGRES_PASSWORD","FORGEJO_DB_PASSWORD","APP_DB_ADMIN_PASSWORD"]){
+  if(value(key) && !uriSafePassword.test(value(key))){
+    problems.push(key+" must use URI-safe characters only (recommended: openssl rand -hex 32)");
+  }
+}
 
 try{
   if(Buffer.from(value("MASTER_KEY"),"base64").length!==32) problems.push("MASTER_KEY must decode to exactly 32 bytes");
