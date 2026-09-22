@@ -44,8 +44,6 @@ jobs:
           set -eu
           for image in \
             traefik:v3.7 \
-            minio/minio:RELEASE.2026-09-19T17-05-25Z \
-            minio/mc:RELEASE.2026-09-19T15-24-59Z \
             prom/prometheus:v3.14.0 \
             prom/node-exporter:v1.12.1 \
             gcr.io/cadvisor/cadvisor:v0.60.6 \
@@ -53,8 +51,16 @@ jobs:
             grafana/alloy:v1.19.2 \
             grafana/grafana:13.2.2
           do
-            echo "Verifying $image"
+            echo "Verifying manifest $image"
             docker manifest inspect "$image" >/dev/null
+          done
+
+          for image in \
+            minio/minio:RELEASE.2026-09-19T17-05-25Z \
+            minio/mc:RELEASE.2026-09-19T15-24-59Z
+          do
+            echo "Verifying pull $image"
+            docker pull "$image" >/dev/null
           done
       - name: Apply database migrations
         run: npm run migrate
