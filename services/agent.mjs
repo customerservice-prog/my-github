@@ -1,5 +1,5 @@
 import http from "node:http";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -23,6 +23,86 @@ function validHealth(v){return /^\/[A-Za-z0-9_\-./?=&%]*$/.test(v);}
 async function docker(args){
   const result=await execFileAsync("docker",args,{maxBuffer:12*1024*1024});
   return String(result.stdout||"").trim();
+}
+
+async function dockerWithEnv(args,extraEnv={}){
+  const result=await execFileAsync("docker",args,{maxBuffer:12*1024*1024,env:{...process.env,...extraEnv}});
+  return String(result.stdout||"").trim();
+}
+
+async function dockerWithInput(args,input,extraEnv={}){
+  await new Promise((resolve,reject)=>{
+    const child=spawn("docker",args,{stdio:["pipe","pipe","pipe"],env:{...process.env,...extraEnv}});
+    let stderr="";
+    child.stderr.on("data",chunk=>stderr+=chunk);
+    child.on("error",reject);
+    child.on("close",code=>code===0?resolve():reject(new Error(stderr||"docker exited "+code)));
+    child.stdin.end(input);
+  });
+}
+
+function minioHost(){
+  const endpoint=process.env.STORAGE_ENDPOINT_INTERNAL||"http://minio:9000";
+  const user=process.env.MINIO_ROOT_USER||"";
+  const password=process.env.MINIO_ROOT_PASSWORD||"";
+  if(!user||!password) throw new Error("MinIO administrator credentials are not configured");
+  const url=new URL(endpoint);
+  url.username=user;
+  url.password=password;
+  return url.toString();
+}
+
+async function provisionStorage({projectSlug,bucket,accessKey,secretKey}){
+  if(!validSlug(projectSlug)) throw new Error("Invalid project slug");
+  if(!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error("Invalid bucket name");
+  if(!/^[A-Z0-9]{16,32}$/.test(accessKey)) throw new Error("Invalid object storage access key");
+  if(secretKey.length<32||secretKey.length>80) throw new Error("Invalid object storage secret key");
+  const image=process.env.MINIO_MC_IMAGE||"minio/mc:latest";
+  const common=["run","--rm","--network","platform-control","-e","MC_HOST_local"];
+  const hostEnv={MC_HOST_local:minioHost()};
+
+  await dockerWithEnv([...common,image,"mb","--ignore-existing","local/"+bucket],hostEnv);
+
+  await dockerWithEnv([
+    ...common,
+    "-e","PROJECT_ACCESS_KEY",
+    "-e","PROJECT_SECRET_KEY",
+    "--entrypoint","/bin/sh",
+    image,
+    "-c",'mc admin user add local "$PROJECT_ACCESS_KEY" "$PROJECT_SECRET_KEY"'
+  ],{...hostEnv,PROJECT_ACCESS_KEY:accessKey,PROJECT_SECRET_KEY:secretKey});
+
+  const policyName=("bucket-"+projectSlug+"-"+accessKey.slice(-8)).toLowerCase();
+  const policy=JSON.stringify({
+    Version:"2012-10-17",
+    Statement:[
+      {Effect:"Allow",Action:["s3:ListBucket","s3:GetBucketLocation","s3:ListBucketMultipartUploads"],Resource:["arn:aws:s3:::"+bucket]},
+      {Effect:"Allow",Action:["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],Resource:["arn:aws:s3:::"+bucket+"/*"]}
+    ]
+  });
+
+  await dockerWithInput([
+    ...common,
+    "-e","POLICY_NAME",
+    "--entrypoint","/bin/sh",
+    image,
+    "-c",'mc admin policy create local "$POLICY_NAME" /dev/stdin'
+  ],policy,{...hostEnv,POLICY_NAME:policyName});
+
+  await dockerWithEnv([
+    ...common,
+    "-e","PROJECT_ACCESS_KEY",
+    "-e","POLICY_NAME",
+    "--entrypoint","/bin/sh",
+    image,
+    "-c",'mc admin policy attach local "$POLICY_NAME" --user "$PROJECT_ACCESS_KEY"'
+  ],{...hostEnv,PROJECT_ACCESS_KEY:accessKey,POLICY_NAME:policyName});
+
+  return {
+    ok:true,
+    bucket,
+    endpoint:process.env.STORAGE_PUBLIC_URL||process.env.STORAGE_ENDPOINT_INTERNAL||"http://minio:9000"
+  };
 }
 
 async function ensureNetwork(){
@@ -230,6 +310,16 @@ const server=http.createServer(async(req,res)=>{
 
     if(req.method==="POST"&&url.pathname==="/deploy"){
       return send(res,200,await deploy(await readBody(req)));
+    }
+
+    if(req.method==="POST"&&url.pathname==="/storage/provision"){
+      const body=await readBody(req);
+      return send(res,200,await provisionStorage({
+        projectSlug:String(body.projectSlug||""),
+        bucket:String(body.bucket||""),
+        accessKey:String(body.accessKey||""),
+        secretKey:String(body.secretKey||"")
+      }));
     }
 
     if(req.method==="POST"&&url.pathname==="/maintenance"){
