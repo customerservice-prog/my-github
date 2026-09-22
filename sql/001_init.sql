@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS project_databases (
   UNIQUE(project_id)
 );
 
+CREATE TABLE IF NOT EXISTS project_buckets (
+  id BIGSERIAL PRIMARY KEY,
+  project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  bucket_name TEXT NOT NULL UNIQUE,
+  access_key_enc TEXT NOT NULL,
+  secret_key_enc TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(project_id)
+);
+
 CREATE TABLE IF NOT EXISTS project_volumes (
   id BIGSERIAL PRIMARY KEY,
   project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
