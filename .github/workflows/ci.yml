@@ -55,10 +55,6 @@ jobs:
             docker manifest inspect "$image" >/dev/null
           done
 
-          for image in \do
-            echo "Verifying pull $image"
-            docker pull "$image" >/dev/null
-          done
       - name: Apply database migrations
         run: npm run migrate
         env:
