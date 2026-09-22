@@ -139,11 +139,28 @@ services:
         condition: service_healthy
       forgejo:
         condition: service_started
-    env_file: .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      FORGEJO_INTERNAL_URL: ${FORGEJO_INTERNAL_URL}
+      PLATFORM_NAME: "${PLATFORM_NAME}"
+      CONTROL_DOMAIN: "${CONTROL_DOMAIN}"
+      DATABASE_URL: "${DATABASE_URL}"
+      REDIS_URL: "${REDIS_URL}"
+      SESSION_SECRET: "${SESSION_SECRET}"
+      MASTER_KEY: "${MASTER_KEY}"
+      INTERNAL_API_TOKEN: "${INTERNAL_API_TOKEN}"
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET}"
+      BOOTSTRAP_ADMIN_EMAIL: "${BOOTSTRAP_ADMIN_EMAIL}"
+      BOOTSTRAP_ADMIN_PASSWORD: "${BOOTSTRAP_ADMIN_PASSWORD}"
+      FORGEJO_INTERNAL_URL: "${FORGEJO_INTERNAL_URL}"
+      FORGEJO_PUBLIC_URL: "${FORGEJO_PUBLIC_URL}"
+      FORGEJO_TOKEN: "${FORGEJO_TOKEN}"
+      FORGEJO_USER: "${FORGEJO_USER}"
+      FORGEJO_PASSWORD: "${FORGEJO_PASSWORD}"
+      GIT_IMPORT_HOSTS: "${GIT_IMPORT_HOSTS}"
+      LOCAL_AGENT_URL: "${LOCAL_AGENT_URL}"
+      LOCAL_AGENT_TOKEN: "${LOCAL_AGENT_TOKEN}"
+      APP_DATABASE_ADMIN_URL: "${APP_DATABASE_ADMIN_URL}"
+      PREVIEW_BASE_DOMAIN: "${PREVIEW_BASE_DOMAIN}"
+      REGISTRY_HOST: "${REGISTRY_HOST}"
     volumes:
       - backup_control:/backup-control
     networks: [control, proxy]
@@ -171,7 +188,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    env_file: .env
+    environment:
+      DATABASE_URL: "${DATABASE_URL}"
+      REDIS_URL: "${REDIS_URL}"
+      MASTER_KEY: "${MASTER_KEY}"
+      FORGEJO_PUBLIC_URL: "${FORGEJO_PUBLIC_URL}"
+      FORGEJO_USER: "${FORGEJO_USER}"
+      FORGEJO_PASSWORD: "${FORGEJO_PASSWORD}"
+      REGISTRY_HOST: "${REGISTRY_HOST}"
+      REGISTRY_NAMESPACE: "${REGISTRY_NAMESPACE}"
+      REGISTRY_USER: "${REGISTRY_USER}"
+      REGISTRY_PASSWORD: "${REGISTRY_PASSWORD}"
+      ALERT_WEBHOOK_URL: "${ALERT_WEBHOOK_URL}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - build_cache:/workspace
@@ -231,12 +259,18 @@ services:
         condition: service_healthy
       app-postgres:
         condition: service_healthy
-    env_file: .env
     environment:
-      PLATFORM_DATABASE_URL: ${DATABASE_URL}
-      FORGEJO_DATABASE_URL: postgresql://${FORGEJO_DB_USER}:${FORGEJO_DB_PASSWORD}@forgejo-db:5432/${FORGEJO_DB_NAME}
-      APP_DATABASE_ADMIN_URL: ${APP_DATABASE_ADMIN_URL}
-      CONTROL_INTERNAL_URL: http://control:3000
+      BACKUP_INTERVAL_SECONDS: "${BACKUP_INTERVAL_SECONDS}"
+      RESTIC_REPOSITORY: "${RESTIC_REPOSITORY}"
+      RESTIC_PASSWORD: "${RESTIC_PASSWORD}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION}"
+      INTERNAL_API_TOKEN: "${INTERNAL_API_TOKEN}"
+      PLATFORM_DATABASE_URL: "${DATABASE_URL}"
+      FORGEJO_DATABASE_URL: "postgresql://${FORGEJO_DB_USER}:${FORGEJO_DB_PASSWORD}@forgejo-db:5432/${FORGEJO_DB_NAME}"
+      APP_DATABASE_ADMIN_URL: "${APP_DATABASE_ADMIN_URL}"
+      CONTROL_INTERNAL_URL: "http://control:3000"
     volumes:
       - forgejo_data:/sources/forgejo:ro
       - minio_data:/sources/minio:ro
