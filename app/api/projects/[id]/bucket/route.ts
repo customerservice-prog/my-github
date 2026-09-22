@@ -55,8 +55,8 @@ export async function POST(_request:Request,{params}:{params:Promise<{id:string}
       ["AWS_SECRET_ACCESS_KEY",secretKey]
     ];
     for(const [key,value] of values){
-      await query(`INSERT INTO project_env(project_id,key,value_enc,secret) VALUES($1,$2,$3,true)
-        ON CONFLICT(project_id,key) DO UPDATE SET value_enc=EXCLUDED.value_enc,secret=true,updated_at=NOW()`,
+      await query(`INSERT INTO project_env(project_id,key,value_enc,secret,environment) VALUES($1,$2,$3,true,'production')
+        ON CONFLICT(project_id,environment,key) DO UPDATE SET value_enc=EXCLUDED.value_enc,secret=true,updated_at=NOW()`,
         [project.id,key,encrypt(value)]);
     }
 
