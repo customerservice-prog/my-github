@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
+import { one } from "@/lib/db";
 
 const COOKIE="mygithub_session";
 const publicPaths=["/login","/status","/api/auth/login","/api/health","/api/webhooks/forgejo","/api/internal/backup-events","/api/internal/restore-events","/api/internal/bootstrap"];
@@ -70,7 +71,11 @@ export async function proxy(request:NextRequest){
 
   try{
     const verified=await jwtVerify(token,secret());
-    const role=String(verified.payload.role||"");
+    const userId=Number(verified.payload.sub);
+    if(!Number.isSafeInteger(userId)) throw new Error("Invalid session subject");
+    const current=await one<{role:string;disabled:boolean}>("SELECT role,disabled FROM users WHERE id=$1",[userId]);
+    if(!current||current.disabled) throw new Error("Session user unavailable");
+    const role=current.role;
     if(!allowed(role,pathname,request.method)){
       if(pathname.startsWith("/api/")) return NextResponse.json({error:"Forbidden for this role"},{status:403});
       return NextResponse.redirect(new URL("/",request.url));
