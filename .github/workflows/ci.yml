@@ -36,7 +36,9 @@ jobs:
       - run: npm test
       - run: npm run runtime-check
       - name: Validate shell scripts
-        run: bash -n scripts/bootstrap.sh ops/backup/*.sh ops/remote-node/install.sh
+        run: bash -n scripts/bootstrap.sh ops/backup/*.sh ops/remote-node/install.sh ops/forgejo-runner/install.sh scripts/forgejo-runner-token.sh
+      - name: Validate Alloy configuration
+        run: docker run --rm -v "$PWD/observability/alloy.alloy:/etc/alloy/config.alloy:ro" grafana/alloy:v1.19.2 validate /etc/alloy/config.alloy
       - name: Apply database migrations
         run: npm run migrate
         env:
