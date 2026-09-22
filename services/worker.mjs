@@ -201,6 +201,87 @@ async function pollServers(){
 setInterval(pollServers,30_000).unref();
 await pollServers();
 
+async function transitionAlert(payload){
+  const url=process.env.ALERT_WEBHOOK_URL;
+  if(!url) return;
+  try{
+    await fetch(url,{
+      method:"POST",
+      headers:{"content-type":"application/json"},
+      body:JSON.stringify({source:"my-github",...payload}),
+      signal:AbortSignal.timeout(5000)
+    });
+  }catch(error){
+    console.error("alert webhook failed",error);
+  }
+}
+
+let healthPollRunning=false;
+async function pollProjectHealth(){
+  if(healthPollRunning) return;
+  healthPollRunning=true;
+  try{
+    const projects=await sql(`SELECT id,name,domain,health_path,staging_domain
+      FROM projects WHERE archived_at IS NULL ORDER BY id`);
+    for(const project of projects){
+      const targets=[
+        {environment:"production",domain:project.domain},
+        ...(project.staging_domain?[{environment:"staging",domain:project.staging_domain}]:[])
+      ];
+      for(const target of targets){
+        const endpoint="https://"+target.domain+project.health_path;
+        const started=Date.now();
+        let status="UNHEALTHY";
+        let httpStatus=null;
+        let error=null;
+        try{
+          const response=await fetch(endpoint,{
+            redirect:"follow",
+            headers:{"user-agent":"my-github-health/1"},
+            signal:AbortSignal.timeout(8000)
+          });
+          httpStatus=response.status;
+          if(response.status>=200&&response.status<400) status="HEALTHY";
+          else error="HTTP "+response.status;
+        }catch(err){
+          error=err instanceof Error?err.message:String(err);
+        }
+        const latency=Math.max(0,Date.now()-started);
+        const previous=(await sql(
+          "SELECT status FROM project_health_checks WHERE project_id=$1 AND environment=$2 ORDER BY id DESC LIMIT 1",
+          [project.id,target.environment]
+        ))[0]?.status||null;
+        await db.query(
+          "INSERT INTO project_health_checks(project_id,environment,domain,status,http_status,latency_ms,error) VALUES($1,$2,$3,$4,$5,$6,$7)",
+          [project.id,target.environment,target.domain,status,httpStatus,latency,error?.slice(0,1000)||null]
+        );
+        if(previous&&previous!==status){
+          await transitionAlert({
+            type:"project_health_transition",
+            projectId:project.id,
+            project:project.name,
+            environment:target.environment,
+            domain:target.domain,
+            previous,
+            status,
+            httpStatus,
+            latencyMs:latency,
+            error
+          });
+        }
+      }
+    }
+    await db.query("DELETE FROM project_health_checks WHERE checked_at < NOW()-INTERVAL '30 days'");
+  }catch(error){
+    console.error("project health polling failed",error);
+  }finally{
+    healthPollRunning=false;
+  }
+}
+
+setInterval(pollProjectHealth,60_000).unref();
+setTimeout(pollProjectHealth,10_000).unref();
+
 async function loop(){
   console.log("Deployment worker online");
   while(!stopping){
