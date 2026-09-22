@@ -46,6 +46,11 @@ function send(res,status,body){
   res.end(JSON.stringify(body));
 }
 
+function sendHtml(res,status,html){
+  res.writeHead(status,{"content-type":"text/html; charset=utf-8","cache-control":"no-store","x-robots-tag":"noindex, nofollow"});
+  res.end(html);
+}
+
 async function activeContainers(slug){
   const out=await docker(["ps","-a","--filter","label=mygithub.project="+slug,"--format","{{.Names}}"]);
   return out?out.split("\n").filter(Boolean):[];
@@ -153,6 +158,38 @@ async function deploy(body){
   return {ok:true,container:name,image,previous:old.filter(v=>v!==name)};
 }
 
+async function writeMaintenanceRoute(slug,domain){
+  await fs.mkdir(dynamicDir,{recursive:true});
+  const safe=slug.replace(/[^a-z0-9-]/g,"");
+  const content=[
+    "http:",
+    "  routers:",
+    "    "+safe+":",
+    "      rule: \"Host(\`"+domain+"\`)\"",
+    "      entryPoints:",
+    "        - websecure",
+    "      service: "+safe+"-maintenance",
+    "      middlewares:",
+    "        - "+safe+"-maintenance-path",
+    "      tls:",
+    "        certResolver: "+certResolver,
+    "  middlewares:",
+    "    "+safe+"-maintenance-path:",
+    "      replacePath:",
+    "        path: /maintenance/"+safe,
+    "  services:",
+    "    "+safe+"-maintenance:",
+    "      loadBalancer:",
+    "        servers:",
+    "          - url: \"http://agent:"+port+"\"",
+    ""
+  ].join("\n");
+  const target=path.join(dynamicDir,safe+".yml");
+  const temp=target+".tmp";
+  await fs.writeFile(temp,content,{mode:0o600});
+  await fs.rename(temp,target);
+}
+
 async function currentContainer(slug){
   const names=await activeContainers(slug);
   for(const name of names){
@@ -164,8 +201,14 @@ async function currentContainer(slug){
 
 const server=http.createServer(async(req,res)=>{
   try{
-    if(!authorized(req)) return send(res,401,{error:"Unauthorized"});
     const url=new URL(req.url||"/","http://agent.local");
+    if(req.method==="GET"&&url.pathname.startsWith("/maintenance/")){
+      const slug=url.pathname.slice("/maintenance/".length);
+      if(!validSlug(slug)) return sendHtml(res,404,"Not found");
+      const html="<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Maintenance</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#071019;color:#eef6ff;font-family:system-ui,sans-serif}.card{max-width:560px;margin:24px;padding:42px;border:1px solid #203243;border-radius:22px;background:#0c1722;text-align:center;box-shadow:0 24px 70px #0006}h1{font-size:34px;margin:0 0 12px}p{color:#9db0c2;line-height:1.6;margin:0}</style></head><body><main class=\"card\"><h1>We’ll be right back.</h1><p>This site is temporarily in maintenance mode. Please check back shortly.</p></main></body></html>";
+      return sendHtml(res,503,html);
+    }
+    if(!authorized(req)) return send(res,401,{error:"Unauthorized"});
 
     if(req.method==="GET"&&url.pathname==="/health"){
       const version=await docker(["version","--format","{{.Server.Version}}"]);
@@ -174,6 +217,24 @@ const server=http.createServer(async(req,res)=>{
 
     if(req.method==="POST"&&url.pathname==="/deploy"){
       return send(res,200,await deploy(await readBody(req)));
+    }
+
+    if(req.method==="POST"&&url.pathname==="/maintenance"){
+      const body=await readBody(req);
+      const slug=String(body.projectSlug||"");
+      const domain=String(body.domain||"").toLowerCase();
+      const enabled=Boolean(body.enabled);
+      if(!validSlug(slug)||!validDomain(domain)) throw new Error("Invalid maintenance target");
+      if(enabled){
+        await writeMaintenanceRoute(slug,domain);
+        return send(res,200,{ok:true,maintenance:true});
+      }
+      const name=await currentContainer(slug);
+      if(!name) return send(res,409,{error:"No running container available to restore traffic"});
+      const targetPort=Number(body.containerPort);
+      if(!Number.isSafeInteger(targetPort)||targetPort<1||targetPort>65535) throw new Error("Invalid container port");
+      await writeRoute(slug,domain,name,targetPort);
+      return send(res,200,{ok:true,maintenance:false,container:name});
     }
 
     if(req.method==="POST"&&url.pathname==="/restart"){
