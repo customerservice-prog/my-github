@@ -9,6 +9,7 @@ import { ProjectLifecycle } from "@/components/ProjectLifecycle";
 import { CancelDeploymentButton } from "@/components/CancelDeploymentButton";
 import { ProjectSettingsForm } from "@/components/ProjectSettingsForm";
 import { RotateDatabaseButton } from "@/components/RotateDatabaseButton";
+import { TeardownPreviewButton } from "@/components/TeardownPreviewButton";
 import { one, query } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
 
@@ -47,7 +48,7 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
     <section className="grid two-col">
       <div className="card">
         <div className="card-header"><h2>Deployments</h2><span className="muted tiny">{project.branch} · {project.dockerfile}</span></div>
-        {deployments.length?<div className="table-wrap"><table><thead><tr><th>ID</th><th>Target</th><th>Status</th><th>Commit</th><th>Queued</th><th></th></tr></thead><tbody>{deployments.map(d=><tr key={d.id}><td>#{d.id}</td><td><div className="row-title">{d.environment}</div><div className="row-sub">{d.target_branch||project.branch} · {d.target_domain||project.domain}</div></td><td><StatusPill status={d.status}/>{d.error&&<div className="row-sub">{d.error.slice(0,90)}</div>}</td><td><code>{d.commit_sha?.slice(0,10)??"pending"}</code></td><td>{formatDate(d.queued_at)}</td><td>{d.status==="QUEUED"?<CancelDeploymentButton deploymentId={d.id}/>:d.image&&d.id!==latest?.id?<RollbackButton deploymentId={d.id}/>:null}</td></tr>)}</tbody></table></div>:<div className="empty">No deployments yet.</div>}
+        {deployments.length?<div className="table-wrap"><table><thead><tr><th>ID</th><th>Target</th><th>Status</th><th>Commit</th><th>Queued</th><th></th></tr></thead><tbody>{deployments.map(d=><tr key={d.id}><td>#{d.id}</td><td><div className="row-title">{d.environment}</div><div className="row-sub">{d.target_branch||project.branch} · {d.target_domain||project.domain}</div></td><td><StatusPill status={d.status}/>{d.error&&<div className="row-sub">{d.error.slice(0,90)}</div>}</td><td><code>{d.commit_sha?.slice(0,10)??"pending"}</code></td><td>{formatDate(d.queued_at)}</td><td>{d.status==="QUEUED"?<CancelDeploymentButton deploymentId={d.id}/>:d.environment==="preview"&&d.status!=="REMOVED"?<TeardownPreviewButton deploymentId={d.id}/>:d.image&&d.id!==latest?.id?<RollbackButton deploymentId={d.id}/>:null}</td></tr>)}</tbody></table></div>:<div className="empty">No deployments yet.</div>}
       </div>
       <div className="card">
         <div className="card-header"><h2>Environment</h2><span className="muted tiny">AES-256-GCM encrypted</span></div>
