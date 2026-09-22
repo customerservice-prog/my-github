@@ -75,7 +75,7 @@ type ForgejoHook = {
   events?: string[];
 };
 
-export async function ensureDeployWebhook(repoFullName: string, branch: string) {
+export async function ensureDeployWebhook(repoFullName: string, _branch: string) {
   const [owner, repo] = repoFullName.split("/");
   if (!owner || !repo) throw new Error("Invalid Forgejo repository name");
   const target = "http://control:3000/api/webhooks/forgejo";
@@ -86,25 +86,36 @@ export async function ensureDeployWebhook(repoFullName: string, branch: string) 
     "/api/v1/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/hooks"
   );
   const existing = hooks.find(hook => hook.config?.url === target);
-  if (existing) return { id: existing.id, created: false };
+  const config = {
+    active: true,
+    branch_filter: "*",
+    events: ["push"],
+    name: "my-github-auto-deploy",
+    config: {
+      url: target,
+      content_type: "json",
+      secret
+    }
+  };
+
+  if (existing) {
+    const hook = await forgejoFetch<ForgejoHook>(
+      "/api/v1/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/hooks/" + existing.id,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(config)
+      }
+    );
+    return { id: hook.id, created: false };
+  }
 
   const hook = await forgejoFetch<ForgejoHook>(
     "/api/v1/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/hooks",
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        type: "gitea",
-        name: "my-github-auto-deploy",
-        active: true,
-        branch_filter: branch,
-        events: ["push"],
-        config: {
-          url: target,
-          content_type: "json",
-          secret
-        }
-      })
+      body: JSON.stringify({ type: "gitea", ...config })
     }
   );
   return { id: hook.id, created: true };
