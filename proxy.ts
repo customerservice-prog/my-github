@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
 const COOKIE="mygithub_session";
-const publicPaths=["/login","/status","/api/health","/api/webhooks/forgejo","/api/internal/backup-events","/api/internal/restore-events","/api/internal/bootstrap"];
+const publicPaths=["/login","/status","/api/auth/login","/api/health","/api/webhooks/forgejo","/api/internal/backup-events","/api/internal/restore-events","/api/internal/bootstrap"];
 
 function secret(){
   const value=process.env.SESSION_SECRET||"";
