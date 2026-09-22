@@ -12,7 +12,7 @@ My GitHub is a self-hosted source-control and application deployment platform. I
 - Forgejo's private OCI/container registry.
 - Deployment agents for local or remote Docker hosts.
 - Traefik for HTTPS, domains and atomic route changes.
-- MinIO for S3-compatible project object storage.
+- A source-built MinIO Community release for S3-compatible project object storage; the platform pins upstream source rather than relying on discontinued community Docker tags.
 - Restic for encrypted backups and retention.
 - Prometheus, Grafana, cAdvisor and node-exporter for infrastructure metrics.
 - Loki and Grafana Alloy for Docker log discovery and centralized container logs.
