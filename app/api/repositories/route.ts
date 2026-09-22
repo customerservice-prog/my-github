@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { createRepository, importRepository, listRepositories } from "@/lib/forgejo";
 import { slugify } from "@/lib/utils";
+import { assertPublicHttpsGitUrl } from "@/lib/network";
 
 const schema=z.object({
   mode:z.enum(["create","import"]),
@@ -29,8 +30,9 @@ export async function POST(request:Request){
   const name=slugify(parsed.data.name);
   if(!name) return NextResponse.json({error:"Invalid repository name"},{status:400});
   try{
+    const cloneUrl=parsed.data.mode==="import"?await assertPublicHttpsGitUrl(parsed.data.cloneUrl||""):"";
     const repo=parsed.data.mode==="import"
-      ? await importRepository({name,cloneUrl:parsed.data.cloneUrl||"",private:parsed.data.private})
+      ? await importRepository({name,cloneUrl,private:parsed.data.private})
       : await createRepository({name,description:parsed.data.description,private:parsed.data.private});
     await query(`INSERT INTO repositories(full_name,clone_url,html_url,private) VALUES($1,$2,$3,$4)
       ON CONFLICT(full_name) DO UPDATE SET clone_url=EXCLUDED.clone_url,html_url=EXCLUDED.html_url,private=EXCLUDED.private`,
