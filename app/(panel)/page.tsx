@@ -9,10 +9,14 @@ type ServerRow={id:number;name:string;status:string;last_seen:string|null};
 type BackupRow={status:string;created_at:string;snapshot_id:string|null};
 
 export default async function DashboardPage() {
-  const [projects, deployments, servers, recent, serverRows, backup] = await Promise.all([
-    one<CountRow>("SELECT COUNT(*)::text count FROM projects"),
+  const [projects, deployments, servers, unhealthy, recent, serverRows, backup] = await Promise.all([
+    one<CountRow>("SELECT COUNT(*)::text count FROM projects WHERE archived_at IS NULL"),
     one<CountRow>("SELECT COUNT(*)::text count FROM deployments WHERE queued_at > NOW()-INTERVAL '24 hours'"),
     one<CountRow>("SELECT COUNT(*)::text count FROM servers"),
+    one<CountRow>(`SELECT COUNT(*)::text count FROM (
+      SELECT DISTINCT ON(project_id,environment) project_id,environment,status
+      FROM project_health_checks ORDER BY project_id,environment,checked_at DESC
+    ) latest WHERE status <> 'HEALTHY'`),
     query<DeploymentRow>("SELECT d.id,d.status,d.queued_at,d.commit_sha,d.image,p.name project_name,p.id project_id FROM deployments d JOIN projects p ON p.id=d.project_id ORDER BY d.id DESC LIMIT 8"),
     query<ServerRow>("SELECT id,name,status,last_seen FROM servers ORDER BY id"),
     one<BackupRow>("SELECT status,created_at,snapshot_id FROM backups ORDER BY id DESC LIMIT 1")
@@ -27,6 +31,7 @@ export default async function DashboardPage() {
       <div className="card stat-card"><div className="label">Projects</div><div className="value">{projects?.count ?? "0"}</div><div className="sub">Production workloads</div></div>
       <div className="card stat-card"><div className="label">Deployments · 24h</div><div className="value">{deployments?.count ?? "0"}</div><div className="sub">Queued, built and released</div></div>
       <div className="card stat-card"><div className="label">Servers online</div><div className="value">{healthy}/{servers?.count ?? "0"}</div><div className="sub">Deployment nodes reporting</div></div>
+      <div className="card stat-card"><div className="label">Unhealthy targets</div><div className="value">{unhealthy?.count ?? "0"}</div><div className="sub">Latest external production/staging checks</div></div>
       <div className="card stat-card"><div className="label">Latest backup</div><div className="value" style={{fontSize:20}}>{backup?.status ?? "None"}</div><div className="sub">{backup ? formatDate(backup.created_at) : "No completed snapshot yet"}</div></div>
     </section>
     <section className="grid two-col">
