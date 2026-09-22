@@ -15,7 +15,7 @@ My GitHub is a self-hosted source-control and application deployment platform. I
 - MinIO for S3-compatible project object storage.
 - Restic for encrypted backups and retention.
 - Prometheus, Grafana, cAdvisor and node-exporter for infrastructure metrics.
-- Loki and Promtail for container logs.
+- Loki and Grafana Alloy for Docker log discovery and centralized container logs.
 - A built-in public status page with no separate setup.
 
 ## Deployment safety
@@ -102,7 +102,9 @@ Health history includes:
 
 Set ALERT_WEBHOOK_URL to receive JSON notifications when a site or deployment server changes between healthy/offline states.
 
-Grafana starts with a provisioned Platform Operations dashboard. Loki is already configured as its log source.
+Grafana starts with a provisioned Platform Operations dashboard. Loki is already configured as its log source, and Grafana Alloy discovers Docker containers through the read-only Docker socket and forwards their logs to Loki.
+
+Observability and object-storage images are pinned to explicit releases rather than rolling `latest` tags so an unrelated upstream release cannot silently change a production restart.
 
 STATUS_DOMAIN routes to the built-in public status page. It exposes only aggregate service health, not repository names, secrets, customer information or private infrastructure addresses.
 
@@ -297,7 +299,7 @@ Register the private agent URL in Servers. Do not expose port 7001 to the public
 
 GitHub Actions currently validates each commit while this bootstrap repository still lives on GitHub. CI performs:
 
-- npm install
+- npm ci
 - TypeScript typecheck
 - Node tests
 - worker/agent syntax validation
