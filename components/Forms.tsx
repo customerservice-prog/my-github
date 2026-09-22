@@ -189,6 +189,11 @@ export function BackupButton() {
   </div>;
 }
 
+export function RollbackButton({ deploymentId }: { deploymentId: number }) {
+  const a = useAction();
+  return <button className="ghost-button" disabled={a.busy} onClick={() => a.run(() => send("/api/deployments/" + deploymentId + "/rollback", {})).catch(() => {})}>{a.busy ? "Queueing…" : "Rollback"}</button>;
+}
+
 export function MfaPanel({ enabled }: { enabled: boolean }) {
   const a = useAction();
   const [setup, setSetup] = useState<{ qr: string; secret: string } | null>(null);
