@@ -8,6 +8,7 @@ import { PreviewDeployForm } from "@/components/PreviewDeployForm";
 import { ProjectLifecycle } from "@/components/ProjectLifecycle";
 import { CancelDeploymentButton } from "@/components/CancelDeploymentButton";
 import { ProjectSettingsForm } from "@/components/ProjectSettingsForm";
+import { CreateServiceForm, ServiceControl } from "@/components/ProjectServices";
 import { RotateDatabaseButton } from "@/components/RotateDatabaseButton";
 import { TeardownPreviewButton } from "@/components/TeardownPreviewButton";
 import { one, query } from "@/lib/db";
@@ -21,19 +22,25 @@ type ManagedDb={name:string;username:string;host:string;port:number;created_at:s
 type Volume={id:number;name:string;mount_path:string;created_at:string};
 type Bucket={bucket_name:string;endpoint:string;created_at:string};
 type HealthCheck={environment:string;domain:string;status:string;http_status:number|null;latency_ms:number|null;error:string|null;checked_at:string};
+type ProjectService={id:number;name:string;type:string;command:string;schedule:string|null;enabled:boolean;updated_at:string};
+type ServiceRun={id:number;service_id:number;service_name:string;status:string;scheduled_for:string;finished_at:string|null;error:string|null;output:string|null};
 
 export default async function ProjectPage({params}:{params:Promise<{id:string}>}){
   const {id}=await params;
   const project=await one<Project>(`SELECT p.*,s.name server_name,s.status server_status FROM projects p LEFT JOIN servers s ON s.id=p.server_id WHERE p.id=$1`,[Number(id)]);
   if(!project) notFound();
-  const [envs,deployments,managedDb,volumes,bucket,servers,healthChecks]=await Promise.all([
+  const [envs,deployments,managedDb,volumes,bucket,servers,healthChecks,services,serviceRuns]=await Promise.all([
     query<Env>("SELECT id,key,secret,environment,updated_at FROM project_env WHERE project_id=$1 ORDER BY environment,key",[project.id]),
     query<Deployment>("SELECT id,status,environment,target_branch,target_domain,commit_sha,image,error,queued_at,finished_at FROM deployments WHERE project_id=$1 ORDER BY id DESC LIMIT 20",[project.id]),
     one<ManagedDb>("SELECT name,username,host,port,created_at FROM project_databases WHERE project_id=$1",[project.id]),
     query<Volume>("SELECT id,name,mount_path,created_at FROM project_volumes WHERE project_id=$1 ORDER BY name",[project.id]),
     one<Bucket>("SELECT bucket_name,endpoint,created_at FROM project_buckets WHERE project_id=$1",[project.id]),
     query<{id:number;name:string}>("SELECT id,name FROM servers ORDER BY name"),
-    query<HealthCheck>("SELECT DISTINCT ON(environment) environment,domain,status,http_status,latency_ms,error,checked_at FROM project_health_checks WHERE project_id=$1 ORDER BY environment,checked_at DESC",[project.id])
+    query<HealthCheck>("SELECT DISTINCT ON(environment) environment,domain,status,http_status,latency_ms,error,checked_at FROM project_health_checks WHERE project_id=$1 ORDER BY environment,checked_at DESC",[project.id]),
+    query<ProjectService>("SELECT id,name,type,command,schedule,enabled,updated_at FROM project_services WHERE project_id=$1 ORDER BY type,name",[project.id]),
+    query<ServiceRun>(`SELECT sr.id,sr.service_id,ps.name service_name,sr.status,sr.scheduled_for,sr.finished_at,sr.error,sr.output
+      FROM service_runs sr JOIN project_services ps ON ps.id=sr.service_id
+      WHERE ps.project_id=$1 ORDER BY sr.id DESC LIMIT 20`,[project.id])
   ]);
   const latest=deployments[0];
   const logs=latest?await query<Log>("SELECT message,level,created_at FROM deployment_logs WHERE deployment_id=$1 ORDER BY id DESC LIMIT 120",[latest.id]):[];
@@ -53,6 +60,14 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
       <div className="card">
         <div className="card-header"><h2>Environment</h2><span className="muted tiny">AES-256-GCM encrypted</span></div>
         <div className="card-body stack">{managedDb?<div className="stack"><div className="kv"><span>Managed PostgreSQL</span><strong>{managedDb.name} · {managedDb.username}@{managedDb.host}:{managedDb.port}</strong></div><RotateDatabaseButton projectId={project.id}/></div>:<ProvisionDatabaseButton projectId={project.id}/>}<SecretForm projectId={project.id}/>{envs.map(e=><div className="row-between" key={e.id}><div><strong className="small">{e.key}</strong><div className="row-sub">{e.environment} · Updated {formatDate(e.updated_at)}</div></div><code>{e.secret?"••••••••":"stored"}</code></div>)}{!envs.length&&<div className="muted small">No environment variables stored.</div>}</div>
+      </div>
+    </section>
+    <section className="card section-gap">
+      <div className="card-header"><h2>Background services</h2><span className="muted tiny">Workers + UTC cron jobs</span></div>
+      <div className="card-body stack">
+        <CreateServiceForm projectId={project.id}/>
+        {services.length?<div className="table-wrap"><table><thead><tr><th>Service</th><th>Type</th><th>Command</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>{services.map(s=><tr key={s.id}><td><div className="row-title">{s.name}</div><div className="row-sub">Updated {formatDate(s.updated_at)}</div></td><td>{s.type}</td><td><code>{s.command}</code></td><td><code>{s.schedule||"continuous"}</code></td><td><StatusPill status={s.enabled?"HEALTHY":"DISABLED"}/></td><td><ServiceControl projectId={project.id} serviceId={s.id} enabled={s.enabled}/></td></tr>)}</tbody></table></div>:<div className="muted small">No background workers or scheduled jobs configured.</div>}
+        {serviceRuns.length?<div><div className="eyebrow section-gap">RECENT CRON RUNS</div><div className="table-wrap"><table><thead><tr><th>Job</th><th>Status</th><th>Scheduled</th><th>Result</th></tr></thead><tbody>{serviceRuns.map(run=><tr key={run.id}><td>{run.service_name}</td><td><StatusPill status={run.status}/></td><td>{formatDate(run.scheduled_for)}</td><td className="row-sub">{run.error||run.output?.slice(-140)||"—"}</td></tr>)}</tbody></table></div></div>:null}
       </div>
     </section>
     <section className="card section-gap">
