@@ -253,6 +253,31 @@ The health endpoint should prove the app can actually serve traffic. Database-ba
 
 Do not commit production secrets. Store them in the project's Environment panel.
 
+## Self-hosted Forgejo CI
+
+GitHub Actions is used only while this bootstrap repository is still hosted on GitHub. The repository also contains its native Forgejo workflow at `.forgejo/workflows/verify.yml`.
+
+After importing this repository into your Forgejo instance, install Forgejo Runner on a **separate CI machine**. Do not place a workflow runner on the production/control host.
+
+Generate the tightest possible registration token from the Forgejo server. For this repository:
+
+~~~sh
+sh scripts/forgejo-runner-token.sh YOUR_FORGEJO_OWNER/my-github
+~~~
+
+On the dedicated CI server:
+
+~~~sh
+FORGEJO_URL='https://git.example.com' \\
+FORGEJO_RUNNER_TOKEN='token-from-the-command-above' \\
+RUNNER_NAME='ci-01' \\
+bash ops/forgejo-runner/install.sh
+~~~
+
+The installer verifies the Forgejo release signature, registers the repository-scoped runner, uses a Docker-backed `docker` label with Node 22, and runs the daemon as a non-login `runner` user under systemd.
+
+Treat anyone who can modify a workflow in a repository assigned to a runner as capable of executing code on that runner.
+
 ## Remote deployment nodes
 
 Run the installer from a checked-out copy of this repository on the remote Docker server:
