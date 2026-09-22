@@ -27,7 +27,7 @@ if ! restic snapshots >/dev/null 2>&1; then
   restic init
 fi
 
-restic backup /sources/forgejo /sources/minio /tmp/dumps
+restic backup /sources/forgejo /sources/minio /sources/docker-volumes /tmp/dumps
 snapshot="$(restic snapshots --json --latest 1 | jq -r '.[0].short_id // ""')"
 restic forget --keep-daily 7 --keep-weekly 5 --keep-monthly 12 --prune
 report "SUCCESS" "${snapshot}" ""
