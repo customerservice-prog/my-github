@@ -15,7 +15,7 @@ export default async function ProjectsPage(){
     query<Server>("SELECT id,name FROM servers ORDER BY name")
   ]);
   return <>
-    <header className="page-header"><div><div className="eyebrow">APPLICATIONS</div><h1>Projects</h1><p>Bind a repository to a server, domain, health check and automated deployment pipeline.</p></div></header>
+    <header className="page-header"><div><div className="eyebrow">APPLICATIONS</div><h1>Projects</h1><p>Bind a repository to a server, domain, health check and automated deployment pipeline.</p></div><Link href="/projects/archived" className="ghost-button">Archived projects</Link></header>
     <CreateProjectForm servers={servers}/>
     <div className="section-gap project-grid">
       {projects.map(p=><Link href={"/projects/"+p.id} className="card project-card" key={p.id}>
