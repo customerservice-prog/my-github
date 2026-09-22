@@ -77,6 +77,8 @@ jobs:
             -e SESSION_SECRET=ci-runtime-session-secret-ci-runtime-session-secret \
             -e MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
             -e INTERNAL_API_TOKEN=ci-internal-token-ci-internal-token \
+            -e BOOTSTRAP_ADMIN_EMAIL=tester@example.test \
+            -e BOOTSTRAP_ADMIN_PASSWORD=tester-password-12345 \
             my-github-control:test
 
           control_ok=0
