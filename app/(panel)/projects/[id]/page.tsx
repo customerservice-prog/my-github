@@ -19,18 +19,20 @@ type Log={message:string;level:string;created_at:string};
 type ManagedDb={name:string;username:string;host:string;port:number;created_at:string};
 type Volume={id:number;name:string;mount_path:string;created_at:string};
 type Bucket={bucket_name:string;endpoint:string;created_at:string};
+type HealthCheck={environment:string;domain:string;status:string;http_status:number|null;latency_ms:number|null;error:string|null;checked_at:string};
 
 export default async function ProjectPage({params}:{params:Promise<{id:string}>}){
   const {id}=await params;
   const project=await one<Project>(`SELECT p.*,s.name server_name,s.status server_status FROM projects p LEFT JOIN servers s ON s.id=p.server_id WHERE p.id=$1`,[Number(id)]);
   if(!project) notFound();
-  const [envs,deployments,managedDb,volumes,bucket,servers]=await Promise.all([
+  const [envs,deployments,managedDb,volumes,bucket,servers,healthChecks]=await Promise.all([
     query<Env>("SELECT id,key,secret,environment,updated_at FROM project_env WHERE project_id=$1 ORDER BY environment,key",[project.id]),
     query<Deployment>("SELECT id,status,environment,target_branch,target_domain,commit_sha,image,error,queued_at,finished_at FROM deployments WHERE project_id=$1 ORDER BY id DESC LIMIT 20",[project.id]),
     one<ManagedDb>("SELECT name,username,host,port,created_at FROM project_databases WHERE project_id=$1",[project.id]),
     query<Volume>("SELECT id,name,mount_path,created_at FROM project_volumes WHERE project_id=$1 ORDER BY name",[project.id]),
     one<Bucket>("SELECT bucket_name,endpoint,created_at FROM project_buckets WHERE project_id=$1",[project.id]),
-    query<{id:number;name:string}>("SELECT id,name FROM servers ORDER BY name")
+    query<{id:number;name:string}>("SELECT id,name FROM servers ORDER BY name"),
+    query<HealthCheck>("SELECT DISTINCT ON(environment) environment,domain,status,http_status,latency_ms,error,checked_at FROM project_health_checks WHERE project_id=$1 ORDER BY environment,checked_at DESC",[project.id])
   ]);
   const latest=deployments[0];
   const logs=latest?await query<Log>("SELECT message,level,created_at FROM deployment_logs WHERE deployment_id=$1 ORDER BY id DESC LIMIT 120",[latest.id]):[];
@@ -50,6 +52,12 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
       <div className="card">
         <div className="card-header"><h2>Environment</h2><span className="muted tiny">AES-256-GCM encrypted</span></div>
         <div className="card-body stack">{managedDb?<div className="stack"><div className="kv"><span>Managed PostgreSQL</span><strong>{managedDb.name} · {managedDb.username}@{managedDb.host}:{managedDb.port}</strong></div><RotateDatabaseButton projectId={project.id}/></div>:<ProvisionDatabaseButton projectId={project.id}/>}<SecretForm projectId={project.id}/>{envs.map(e=><div className="row-between" key={e.id}><div><strong className="small">{e.key}</strong><div className="row-sub">{e.environment} · Updated {formatDate(e.updated_at)}</div></div><code>{e.secret?"••••••••":"stored"}</code></div>)}{!envs.length&&<div className="muted small">No environment variables stored.</div>}</div>
+      </div>
+    </section>
+    <section className="card section-gap">
+      <div className="card-header"><h2>External health</h2><span className="muted tiny">HTTPS checks every minute</span></div>
+      <div className="card-body stack">
+        {healthChecks.length?healthChecks.map(h=><div className="row-between" key={h.environment}><div><strong className="small">{h.environment} · {h.domain}</strong><div className="row-sub">{h.http_status?"HTTP "+h.http_status+" · ":""}{h.latency_ms!=null?h.latency_ms+" ms · ":""}checked {formatDate(h.checked_at)}{h.error?" · "+h.error:""}</div></div><StatusPill status={h.status}/></div>):<div className="muted small">No external health check has run yet. Checks start automatically after the worker comes online.</div>}
       </div>
     </section>
     <section className="card section-gap">
