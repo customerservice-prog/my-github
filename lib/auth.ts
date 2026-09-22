@@ -49,7 +49,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     const id = Number(verified.payload.sub);
     if (!Number.isSafeInteger(id)) return null;
     return await one<SessionUser>(
-      "SELECT id, email, role, two_factor_enabled FROM users WHERE id=$1",
+      "SELECT id, email, role, two_factor_enabled FROM users WHERE id=$1 AND disabled=false",
       [id]
     );
   } catch {
