@@ -203,9 +203,28 @@ async function processDeployment(deploymentId){
   }
 }
 
+let cleanupRunning=false;
+async function pruneBuildHost(){
+  if(cleanupRunning) return;
+  cleanupRunning=true;
+  try{
+    await run("docker",["builder","prune","-f","--filter","until=168h"]);
+    await run("docker",["image","prune","-f","--filter","until=168h"]);
+    await run("docker",["container","prune","-f","--filter","until=168h"]);
+    console.log("Build-host Docker cache cleanup completed");
+  }catch(error){
+    console.error("Docker cache cleanup failed",error);
+  }finally{
+    cleanupRunning=false;
+  }
+}
+
+setInterval(pruneBuildHost,12*60*60*1000).unref();
+setTimeout(pruneBuildHost,60_000).unref();
+
 async function pollServers(){
   try{
-    const servers=await sql("SELECT id,name,status,base_url,agent_token_enc FROM servers ORDER BY id");
+    const servers=await sql("SELECT id,name,status,metrics,base_url,agent_token_enc FROM servers ORDER BY id");
     await Promise.all(servers.map(async server=>{
       let online=false;
       let metrics={};
@@ -230,6 +249,29 @@ async function pollServers(){
           server:server.name,
           previous:server.status,
           status:nextStatus
+        });
+      }
+
+      const total=Number(metrics?.disk?.totalBytes||0);
+      const free=Number(metrics?.disk?.freeBytes||0);
+      const diskPercent=total>0?Math.round((1-free/total)*1000)/10:null;
+      const priorTotal=Number(server.metrics?.disk?.totalBytes||0);
+      const priorFree=Number(server.metrics?.disk?.freeBytes||0);
+      const priorPercent=priorTotal>0?Math.round((1-priorFree/priorTotal)*1000)/10:null;
+      if(diskPercent!==null && diskPercent>=85 && (priorPercent===null||priorPercent<85)){
+        await transitionAlert({
+          type:"server_disk_high",
+          serverId:server.id,
+          server:server.name,
+          diskUsedPercent:diskPercent
+        });
+      }
+      if(diskPercent!==null && diskPercent<75 && priorPercent!==null && priorPercent>=85){
+        await transitionAlert({
+          type:"server_disk_recovered",
+          serverId:server.id,
+          server:server.name,
+          diskUsedPercent:diskPercent
         });
       }
     }));
