@@ -301,6 +301,8 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./observability/grafana-dashboard-provider.yml:/etc/grafana/provisioning/dashboards/provider.yml:ro
+      - ./observability/dashboards:/var/lib/grafana/dashboards:ro
     networks: [control, proxy]
     labels:
       - traefik.enable=true
