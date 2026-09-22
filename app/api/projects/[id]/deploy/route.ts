@@ -35,6 +35,8 @@ export async function POST(request:Request,{params}:{params:Promise<{id:string}>
   if(!project) return NextResponse.json({error:"Project not found"},{status:404});
   if(project.archived_at) return NextResponse.json({error:"Archived projects cannot be deployed"},{status:409});
   if(!project.server_id) return NextResponse.json({error:"Assign a deployment server first"},{status:400});
+  const server=await one<{draining:boolean}>("SELECT draining FROM servers WHERE id=$1",[project.server_id]);
+  if(server?.draining) return NextResponse.json({error:"This deployment server is draining and is not accepting new releases"},{status:409});
 
   let targetBranch=project.branch;
   let targetDomain=project.domain;
