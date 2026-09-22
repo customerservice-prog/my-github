@@ -1,0 +1,6 @@
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_users_active
+  ON users(disabled, role);
