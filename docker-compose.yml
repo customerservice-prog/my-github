@@ -240,6 +240,7 @@ services:
     volumes:
       - forgejo_data:/sources/forgejo:ro
       - minio_data:/sources/minio:ro
+      - /var/lib/docker/volumes:/sources/docker-volumes:ro
       - backup_store:/repository
       - backup_control:/control
     networks: [control]
