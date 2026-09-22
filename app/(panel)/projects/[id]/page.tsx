@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { DeployButton, SecretForm } from "@/components/Forms";
+import { DeployButton, RollbackButton, SecretForm } from "@/components/Forms";
 import { StatusPill } from "@/components/StatusPill";
 import { one, query } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
@@ -30,7 +30,7 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
     <section className="grid two-col">
       <div className="card">
         <div className="card-header"><h2>Deployments</h2><span className="muted tiny">{project.branch} · {project.dockerfile}</span></div>
-        {deployments.length?<div className="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Commit</th><th>Queued</th></tr></thead><tbody>{deployments.map(d=><tr key={d.id}><td>#{d.id}</td><td><StatusPill status={d.status}/>{d.error&&<div className="row-sub">{d.error.slice(0,90)}</div>}</td><td><code>{d.commit_sha?.slice(0,10)??"pending"}</code></td><td>{formatDate(d.queued_at)}</td></tr>)}</tbody></table></div>:<div className="empty">No deployments yet.</div>}
+        {deployments.length?<div className="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Commit</th><th>Queued</th><th></th></tr></thead><tbody>{deployments.map(d=><tr key={d.id}><td>#{d.id}</td><td><StatusPill status={d.status}/>{d.error&&<div className="row-sub">{d.error.slice(0,90)}</div>}</td><td><code>{d.commit_sha?.slice(0,10)??"pending"}</code></td><td>{formatDate(d.queued_at)}</td><td>{d.image&&d.id!==latest?.id?<RollbackButton deploymentId={d.id}/>:null}</td></tr>)}</tbody></table></div>:<div className="empty">No deployments yet.</div>}
       </div>
       <div className="card">
         <div className="card-header"><h2>Environment</h2><span className="muted tiny">AES-256-GCM encrypted</span></div>
