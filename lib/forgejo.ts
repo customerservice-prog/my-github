@@ -67,3 +67,45 @@ export function importRepository(input: { name: string; cloneUrl: string; privat
     })
   });
 }
+
+type ForgejoHook = {
+  id: number;
+  active: boolean;
+  config?: Record<string,string>;
+  events?: string[];
+};
+
+export async function ensureDeployWebhook(repoFullName: string, branch: string) {
+  const [owner, repo] = repoFullName.split("/");
+  if (!owner || !repo) throw new Error("Invalid Forgejo repository name");
+  const target = "http://control:3000/api/webhooks/forgejo";
+  const secret = process.env.WEBHOOK_SECRET;
+  if (!secret) throw new Error("WEBHOOK_SECRET is required for automatic deploy hooks");
+
+  const hooks = await forgejoFetch<ForgejoHook[]>(
+    "/api/v1/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/hooks"
+  );
+  const existing = hooks.find(hook => hook.config?.url === target);
+  if (existing) return { id: existing.id, created: false };
+
+  const hook = await forgejoFetch<ForgejoHook>(
+    "/api/v1/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo) + "/hooks",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "gitea",
+        name: "my-github-auto-deploy",
+        active: true,
+        branch_filter: branch,
+        events: ["push"],
+        config: {
+          url: target,
+          content_type: "json",
+          secret
+        }
+      })
+    }
+  );
+  return { id: hook.id, created: true };
+}
