@@ -5,6 +5,7 @@ import { RuntimePanel } from "@/components/RuntimePanel";
 import { VolumeForm } from "@/components/VolumeForm";
 import { ObjectStorageButton } from "@/components/ObjectStorageButton";
 import { PreviewDeployForm } from "@/components/PreviewDeployForm";
+import { ProjectLifecycle } from "@/components/ProjectLifecycle";
 import { one, query } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
 
@@ -68,6 +69,10 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
         <div className="card-header"><h2>Runtime</h2><span className="muted tiny">Live from deployment agent</span></div>
         <div className="card-body"><RuntimePanel projectId={project.id}/></div>
       </div>
+    </section>
+    <section className="card section-gap">
+      <div className="card-header"><h2>Project lifecycle</h2><span className="muted tiny">Non-destructive</span></div>
+      <div className="card-body row-between"><div><strong className="small">Archive this project</strong><div className="row-sub">Disables auto-deploy and hides the project while keeping repositories, data, volumes, images and history.</div></div><ProjectLifecycle projectId={project.id}/></div>
     </section>
   </>;
 }
