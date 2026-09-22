@@ -173,13 +173,19 @@ export function SecretForm({ projectId }: { projectId: number }) {
     const form = e.currentTarget;
     const f = new FormData(form);
     try {
-      await a.run(() => send("/api/projects/" + projectId + "/secrets", { key: f.get("key"), value: f.get("value"), secret: f.get("secret") === "on" }));
+      await a.run(() => send("/api/projects/" + projectId + "/secrets", { key: f.get("key"), value: f.get("value"), secret: f.get("secret") === "on", environment: f.get("environment") || "production" }));
       form.reset();
     } catch {}
   }
   return <form className="inline-form" onSubmit={submit}>
     <input name="key" placeholder="DATABASE_URL" required />
     <input name="value" type="password" placeholder="Value" required />
+    <select name="environment" defaultValue="production" aria-label="Environment">
+      <option value="production">Production</option>
+      <option value="staging">Staging</option>
+      <option value="preview">Preview</option>
+      <option value="all">All environments</option>
+    </select>
     <label className="check"><input name="secret" type="checkbox" defaultChecked />Secret</label>
     <button className="secondary-button" disabled={a.busy}>Save variable</button>
     {a.error && <span className="form-error">{a.error}</span>}
