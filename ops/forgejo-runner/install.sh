@@ -15,7 +15,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-for cmd in curl gpg git docker systemctl useradd usermod; do
+for cmd in curl gpg git docker systemctl useradd usermod runuser install uname mktemp; do
   command -v "${cmd}" >/dev/null 2>&1 || {
     echo "Missing required command: ${cmd}" >&2
     exit 1
@@ -84,7 +84,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only
 ProtectSystem=strict
-ReadWritePaths=/home/runner
+ReadWritePaths=/home/runner /var/run/docker.sock
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
 LockPersonality=true
 RestrictSUIDSGID=true
 
