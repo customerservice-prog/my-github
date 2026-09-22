@@ -218,7 +218,6 @@ services:
       CERT_RESOLVER: letsencrypt
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_MC_IMAGE: ${MINIO_MC_IMAGE}
       STORAGE_ENDPOINT_INTERNAL: http://minio:9000
       STORAGE_PUBLIC_URL: https://${STORAGE_DOMAIN}
     volumes:
@@ -227,7 +226,9 @@ services:
     networks: [control, proxy]
 
   minio:
-    image: minio/minio:RELEASE.2026-09-19T17-05-25Z
+    build:
+      context: .
+      dockerfile: Dockerfile.minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
