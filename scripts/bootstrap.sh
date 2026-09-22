@@ -17,6 +17,9 @@ set -a
 . ./.env
 set +a
 
+echo "Running production preflight..."
+docker run --rm --env-file .env -v "$PWD/scripts:/app/scripts:ro" node:22-alpine node /app/scripts/preflight.mjs
+
 docker compose up -d postgres app-postgres redis forgejo-db forgejo traefik minio
 echo "Waiting for Forgejo..."
 sleep 12
