@@ -106,6 +106,7 @@ async function deploy(body){
   const containerPort=Number(body.containerPort);
   const healthPath=String(body.healthPath||"/");
   const env=body.env&&typeof body.env==="object"?body.env:{};
+  const mounts=Array.isArray(body.mounts)?body.mounts:[];
   if(!validSlug(projectSlug)) throw new Error("Invalid project slug");
   if(!Number.isSafeInteger(deploymentId)||deploymentId<1) throw new Error("Invalid deployment id");
   if(!image||image.length>500||/\s/.test(image)) throw new Error("Invalid image");
@@ -115,6 +116,11 @@ async function deploy(body){
   for(const [key,value] of Object.entries(env)){
     if(!/^[A-Z_][A-Z0-9_]*$/.test(key)) throw new Error("Invalid environment key");
     if(String(value).includes("\n")) throw new Error("Multiline environment values are not supported by this agent");
+  }
+  for(const mount of mounts){
+    if(!mount||!validSlug(String(mount.name||""))) throw new Error("Invalid volume name");
+    const target=String(mount.mountPath||"");
+    if(!/^\/[A-Za-z0-9._/-]+$/.test(target)||target.split("/").includes("..")) throw new Error("Invalid volume mount path");
   }
 
   await ensureNetwork();
@@ -127,6 +133,12 @@ async function deploy(body){
   const envText=Object.entries(env).map(([k,v])=>k+"="+String(v).replace(/\r/g,"")).join("\n")+"\n";
   await fs.writeFile(envPath,envText,{mode:0o600});
   try{
+    const mountArgs=[];
+    for(const mount of mounts){
+      const volumeName="mygithub-"+projectSlug+"-"+mount.name;
+      await docker(["volume","create","--label","mygithub.project="+projectSlug,volumeName]);
+      mountArgs.push("--mount","type=volume,src="+volumeName+",dst="+mount.mountPath);
+    }
     await docker([
       "run","-d",
       "--name",name,
@@ -135,6 +147,7 @@ async function deploy(body){
       "--label","mygithub.project="+projectSlug,
       "--label","mygithub.deployment="+deploymentId,
       "--env-file",envPath,
+      ...mountArgs,
       image
     ]);
   }finally{
