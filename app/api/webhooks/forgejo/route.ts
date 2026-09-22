@@ -12,6 +12,7 @@ type Project={
   staging_domain:string|null;
   auto_deploy:boolean;
   archived_at:string|null;
+  server_draining:boolean|null;
 };
 type Existing={id:number};
 
@@ -37,12 +38,13 @@ export async function POST(request:Request){
   if(!fullName||!ref.startsWith("refs/heads/")||!after) return NextResponse.json({ok:true,ignored:true});
   const branch=ref.replace("refs/heads/","");
   const projects=await query<Project>(
-    "SELECT id,slug,branch,domain,staging_branch,staging_domain,auto_deploy,archived_at FROM projects WHERE repo_full_name=$1",
+    `SELECT p.id,p.slug,p.branch,p.domain,p.staging_branch,p.staging_domain,p.auto_deploy,p.archived_at,s.draining server_draining
+     FROM projects p LEFT JOIN servers s ON s.id=p.server_id WHERE p.repo_full_name=$1`,
     [fullName]
   );
   let queued=0;
   for(const project of projects){
-    if(!project.auto_deploy||project.archived_at) continue;
+    if(!project.auto_deploy||project.archived_at||project.server_draining) continue;
 
     let environment:"production"|"staging"|null=null;
     let targetSlug=project.slug;
