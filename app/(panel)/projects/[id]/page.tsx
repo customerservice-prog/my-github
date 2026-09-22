@@ -6,12 +6,13 @@ import { VolumeForm } from "@/components/VolumeForm";
 import { ObjectStorageButton } from "@/components/ObjectStorageButton";
 import { PreviewDeployForm } from "@/components/PreviewDeployForm";
 import { ProjectLifecycle } from "@/components/ProjectLifecycle";
+import { CancelDeploymentButton } from "@/components/CancelDeploymentButton";
 import { one, query } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
 
 type Project={id:number;name:string;slug:string;repo_full_name:string;repo_url:string;branch:string;staging_domain:string|null;staging_branch:string|null;dockerfile:string;domain:string;container_port:number;health_path:string;auto_deploy:boolean;server_name:string|null;server_status:string|null};
 type Env={id:number;key:string;secret:boolean;environment:string;updated_at:string};
-type Deployment={id:number;status:string;commit_sha:string|null;image:string|null;error:string|null;queued_at:string;finished_at:string|null};
+type Deployment={id:number;status:string;environment:string;target_branch:string|null;target_domain:string|null;commit_sha:string|null;image:string|null;error:string|null;queued_at:string;finished_at:string|null};
 type Log={message:string;level:string;created_at:string};
 type ManagedDb={name:string;username:string;host:string;port:number;created_at:string};
 type Volume={id:number;name:string;mount_path:string;created_at:string};
@@ -23,7 +24,7 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
   if(!project) notFound();
   const [envs,deployments,managedDb,volumes,bucket]=await Promise.all([
     query<Env>("SELECT id,key,secret,environment,updated_at FROM project_env WHERE project_id=$1 ORDER BY environment,key",[project.id]),
-    query<Deployment>("SELECT id,status,commit_sha,image,error,queued_at,finished_at FROM deployments WHERE project_id=$1 ORDER BY id DESC LIMIT 20",[project.id]),
+    query<Deployment>("SELECT id,status,environment,target_branch,target_domain,commit_sha,image,error,queued_at,finished_at FROM deployments WHERE project_id=$1 ORDER BY id DESC LIMIT 20",[project.id]),
     one<ManagedDb>("SELECT name,username,host,port,created_at FROM project_databases WHERE project_id=$1",[project.id]),
     query<Volume>("SELECT id,name,mount_path,created_at FROM project_volumes WHERE project_id=$1 ORDER BY name",[project.id]),
     one<Bucket>("SELECT bucket_name,endpoint,created_at FROM project_buckets WHERE project_id=$1",[project.id])
@@ -41,7 +42,7 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
     <section className="grid two-col">
       <div className="card">
         <div className="card-header"><h2>Deployments</h2><span className="muted tiny">{project.branch} · {project.dockerfile}</span></div>
-        {deployments.length?<div className="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Commit</th><th>Queued</th><th></th></tr></thead><tbody>{deployments.map(d=><tr key={d.id}><td>#{d.id}</td><td><StatusPill status={d.status}/>{d.error&&<div className="row-sub">{d.error.slice(0,90)}</div>}</td><td><code>{d.commit_sha?.slice(0,10)??"pending"}</code></td><td>{formatDate(d.queued_at)}</td><td>{d.image&&d.id!==latest?.id?<RollbackButton deploymentId={d.id}/>:null}</td></tr>)}</tbody></table></div>:<div className="empty">No deployments yet.</div>}
+        {deployments.length?<div className="table-wrap"><table><thead><tr><th>ID</th><th>Target</th><th>Status</th><th>Commit</th><th>Queued</th><th></th></tr></thead><tbody>{deployments.map(d=><tr key={d.id}><td>#{d.id}</td><td><div className="row-title">{d.environment}</div><div className="row-sub">{d.target_branch||project.branch} · {d.target_domain||project.domain}</div></td><td><StatusPill status={d.status}/>{d.error&&<div className="row-sub">{d.error.slice(0,90)}</div>}</td><td><code>{d.commit_sha?.slice(0,10)??"pending"}</code></td><td>{formatDate(d.queued_at)}</td><td>{d.status==="QUEUED"?<CancelDeploymentButton deploymentId={d.id}/>:d.image&&d.id!==latest?.id?<RollbackButton deploymentId={d.id}/>:null}</td></tr>)}</tbody></table></div>:<div className="empty">No deployments yet.</div>}
       </div>
       <div className="card">
         <div className="card-header"><h2>Environment</h2><span className="muted tiny">AES-256-GCM encrypted</span></div>
