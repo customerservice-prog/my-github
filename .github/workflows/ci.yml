@@ -46,7 +46,7 @@ jobs:
             traefik:v3.7 \
             prom/prometheus:v3.14.0 \
             prom/node-exporter:v1.12.1 \
-            gcr.io/cadvisor/cadvisor:v0.60.6 \
+            ghcr.io/google/cadvisor:v0.60.6 \
             grafana/loki:3.7.8 \
             grafana/alloy:v1.19.2 \
             grafana/grafana:13.2.2
