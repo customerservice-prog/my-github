@@ -8,6 +8,10 @@ type CountRow={count:string};
 type Backup={status:string;created_at:string};
 type Check={status:string};
 
+async function safeOne<T extends Record<string,unknown>>(sql:string){
+  try{return await one<T>(sql);}catch{return null;}
+}
+
 async function reachable(url:string){
   try{
     const response=await fetch(url,{cache:"no-store",signal:AbortSignal.timeout(4000)});
@@ -17,10 +21,10 @@ async function reachable(url:string){
 
 export default async function PublicStatusPage(){
   const [serverTotal,serverOffline,latestBackup,latestBad,gitOk,storageOk]=await Promise.all([
-    one<CountRow>("SELECT COUNT(*)::text count FROM servers"),
-    one<CountRow>("SELECT COUNT(*)::text count FROM servers WHERE status <> 'ONLINE'"),
-    one<Backup>("SELECT status,created_at FROM backups ORDER BY id DESC LIMIT 1"),
-    one<Check>(`SELECT status FROM (
+    safeOne<CountRow>("SELECT COUNT(*)::text count FROM servers"),
+    safeOne<CountRow>("SELECT COUNT(*)::text count FROM servers WHERE status <> 'ONLINE'"),
+    safeOne<Backup>("SELECT status,created_at FROM backups ORDER BY id DESC LIMIT 1"),
+    safeOne<Check>(`SELECT status FROM (
       SELECT DISTINCT ON(project_id,environment) project_id,environment,status
       FROM project_health_checks ORDER BY project_id,environment,checked_at DESC
     ) x WHERE status <> 'HEALTHY' LIMIT 1`),
