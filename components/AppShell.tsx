@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { SessionUser } from "@/lib/auth";
 
-const nav = [
+const nav: Array<[string,string,string,string[]]> = [
   ["/", "Overview", "⌂", ["OWNER","ADMIN","DEVELOPER","VIEWER"]],
   ["/projects", "Projects", "◫", ["OWNER","ADMIN","DEVELOPER","VIEWER"]],
   ["/repositories", "Repositories", "⌘", ["OWNER","ADMIN","DEVELOPER","VIEWER"]],
@@ -12,7 +12,7 @@ const nav = [
   ["/audit", "Audit", "≡", ["OWNER","ADMIN"]],
   ["/settings", "Settings", "⚙", ["OWNER","ADMIN"]],
   ["/settings/users", "Users", "◎", ["OWNER"]]
-] as const;
+];
 
 export function AppShell({ user, children }: { user: SessionUser; children: ReactNode }) {
   return (
@@ -23,7 +23,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
           <div><strong>My GitHub</strong><span>Private Dev Cloud</span></div>
         </div>
         <nav>
-          {nav.filter(([, , ,roles])=>roles.includes(user.role as typeof roles[number])).map(([href,label,icon]) => (
+          {nav.filter(([, , ,roles])=>roles.includes(user.role)).map(([href,label,icon]) => (
             <Link href={href} key={href} className="nav-link"><span>{icon}</span>{label}</Link>
           ))}
         </nav>
