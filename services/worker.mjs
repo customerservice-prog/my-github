@@ -75,7 +75,7 @@ async function registryLogin(){
 }
 
 async function processDeployment(deploymentId){
-  const rows=await sql(`SELECT d.id,d.requested_commit,p.id project_id,p.name,p.slug,p.repo_url,p.branch,p.dockerfile,p.domain,p.container_port,p.health_path,
+  const rows=await sql(`SELECT d.id,d.requested_commit,d.commit_sha prebuilt_commit,d.image prebuilt_image,p.id project_id,p.name,p.slug,p.repo_url,p.branch,p.dockerfile,p.domain,p.container_port,p.health_path,
     s.id server_id,s.base_url,s.agent_token_enc
     FROM deployments d JOIN projects p ON p.id=d.project_id LEFT JOIN servers s ON s.id=p.server_id WHERE d.id=$1`,[deploymentId]);
   const job=rows[0];
@@ -85,33 +85,43 @@ async function processDeployment(deploymentId){
   const workspace=await fs.mkdtemp(path.join(process.env.BUILD_WORKSPACE||os.tmpdir(),"mygithub-build-"));
   const source=path.join(workspace,"source");
   try{
-    await db.query("UPDATE deployments SET status='BUILDING',started_at=NOW(),error=NULL WHERE id=$1",[deploymentId]);
-    await addLog(deploymentId,"Cloning "+job.repo_url+" branch "+job.branch);
-    await run("git",["clone","--depth","1","--branch",job.branch,authenticatedRepoUrl(job.repo_url),source]);
+    let sha=job.prebuilt_commit||null;
+    let image=job.prebuilt_image||null;
 
-    if(job.requested_commit){
-      const {stdout}=await run("git",["rev-parse","HEAD"],{cwd:source});
-      if(stdout.trim()!==job.requested_commit){
-        await run("git",["fetch","origin",job.requested_commit,"--depth","1"],{cwd:source});
-        await run("git",["checkout","--detach",job.requested_commit],{cwd:source});
+    if(image&&sha){
+      await db.query("UPDATE deployments SET status='DEPLOYING',started_at=NOW(),error=NULL WHERE id=$1",[deploymentId]);
+      await addLog(deploymentId,"Rollback release: reusing immutable image "+image);
+      await registryLogin();
+      await run("docker",["pull",image]);
+    }else{
+      await db.query("UPDATE deployments SET status='BUILDING',started_at=NOW(),error=NULL WHERE id=$1",[deploymentId]);
+      await addLog(deploymentId,"Cloning "+job.repo_url+" branch "+job.branch);
+      await run("git",["clone","--depth","1","--branch",job.branch,authenticatedRepoUrl(job.repo_url),source]);
+
+      if(job.requested_commit){
+        const current=await run("git",["rev-parse","HEAD"],{cwd:source});
+        if(current.stdout.trim()!==job.requested_commit){
+          await run("git",["fetch","origin",job.requested_commit,"--depth","1"],{cwd:source});
+          await run("git",["checkout","--detach",job.requested_commit],{cwd:source});
+        }
       }
+
+      const revision=await run("git",["rev-parse","HEAD"],{cwd:source});
+      sha=revision.stdout.trim();
+      const registry=process.env.REGISTRY_HOST;
+      const namespace=process.env.REGISTRY_NAMESPACE;
+      if(!registry||!namespace) throw new Error("REGISTRY_HOST and REGISTRY_NAMESPACE are required");
+      image=registry+"/"+namespace+"/"+job.slug+":"+sha.slice(0,12);
+
+      await db.query("UPDATE deployments SET commit_sha=$1,image=$2 WHERE id=$3",[sha,image,deploymentId]);
+      await addLog(deploymentId,"Building immutable image "+image);
+      await run("docker",["build","--pull","-f",job.dockerfile,"-t",image,"."],{cwd:source});
+
+      await db.query("UPDATE deployments SET status='PUSHING' WHERE id=$1",[deploymentId]);
+      await addLog(deploymentId,"Pushing image to private registry");
+      await registryLogin();
+      await run("docker",["push",image]);
     }
-
-    const {stdout}=await run("git",["rev-parse","HEAD"],{cwd:source});
-    const sha=stdout.trim();
-    const registry=process.env.REGISTRY_HOST;
-    const namespace=process.env.REGISTRY_NAMESPACE;
-    if(!registry||!namespace) throw new Error("REGISTRY_HOST and REGISTRY_NAMESPACE are required");
-    const image=registry+"/"+namespace+"/"+job.slug+":"+sha.slice(0,12);
-
-    await db.query("UPDATE deployments SET commit_sha=$1,image=$2 WHERE id=$3",[sha,image,deploymentId]);
-    await addLog(deploymentId,"Building immutable image "+image);
-    await run("docker",["build","--pull","-f",job.dockerfile,"-t",image,"."],{cwd:source});
-
-    await db.query("UPDATE deployments SET status='PUSHING' WHERE id=$1",[deploymentId]);
-    await addLog(deploymentId,"Pushing image to private registry");
-    await registryLogin();
-    await run("docker",["push",image]);
 
     const envRows=await sql("SELECT key,value_enc FROM project_env WHERE project_id=$1 ORDER BY key",[job.project_id]);
     const environment={};
