@@ -58,8 +58,8 @@ export async function POST(_request:Request,{params}:{params:Promise<{id:string}
   const url="postgresql://"+encodeURIComponent(username)+":"+encodeURIComponent(password)+"@"+host+":"+port+"/"+encodeURIComponent(name);
   const record=await one<ManagedDb>("INSERT INTO project_databases(project_id,name,username,host,port) VALUES($1,$2,$3,$4,$5) RETURNING id,name,username,host,port,created_at",
     [project.id,name,username,host,port]);
-  await query(`INSERT INTO project_env(project_id,key,value_enc,secret) VALUES($1,'DATABASE_URL',$2,true)
-    ON CONFLICT(project_id,key) DO UPDATE SET value_enc=EXCLUDED.value_enc,secret=true,updated_at=NOW()`,[project.id,encrypt(url)]);
+  await query(`INSERT INTO project_env(project_id,key,value_enc,secret,environment) VALUES($1,'DATABASE_URL',$2,true,'production')
+    ON CONFLICT(project_id,environment,key) DO UPDATE SET value_enc=EXCLUDED.value_enc,secret=true,updated_at=NOW()`,[project.id,encrypt(url)]);
   await audit(user.id,"PROJECT_DATABASE_PROVISIONED","project",project.id,{database:name,username});
   return NextResponse.json(record,{status:201});
 }
