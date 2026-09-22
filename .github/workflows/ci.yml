@@ -53,6 +53,57 @@ jobs:
           docker build -f Dockerfile.worker -t my-github-worker:test .
           docker build -f Dockerfile.agent -t my-github-agent:test .
           docker build -f ops/backup/Dockerfile -t my-github-backup:test ops/backup
+      - name: Boot runtime images and health-check them
+        run: |
+          set -eu
+          docker network create ci-runtime
+          trap 'docker rm -f ci-control ci-agent ci-redis ci-postgres >/dev/null 2>&1 || true; docker network rm ci-runtime >/dev/null 2>&1 || true' EXIT
+
+          docker run -d --name ci-postgres --network ci-runtime \
+            -e POSTGRES_DB=runtime_test \
+            -e POSTGRES_USER=runtime_test \
+            -e POSTGRES_PASSWORD=runtime_test \
+            postgres:18-alpine
+          docker run -d --name ci-redis --network ci-runtime redis:8-alpine
+
+          for i in $(seq 1 30); do
+            if docker exec ci-postgres pg_isready -U runtime_test -d runtime_test >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+
+          docker run -d --name ci-control --network ci-runtime -p 3100:3000 \
+            -e DATABASE_URL=postgresql://runtime_test:runtime_test@ci-postgres:5432/runtime_test \
+            -e REDIS_URL=redis://ci-redis:6379 \
+            -e SESSION_SECRET=ci-runtime-session-secret-ci-runtime-session-secret \
+            -e MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+            -e INTERNAL_API_TOKEN=ci-internal-token-ci-internal-token \
+            my-github-control:test
+
+          control_ok=0
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3100/api/health >/dev/null; then control_ok=1; break; fi
+            sleep 1
+          done
+          if [ "$control_ok" -ne 1 ]; then
+            docker logs ci-control
+            exit 1
+          fi
+
+          docker run -d --name ci-agent -p 7100:7001 \
+            -e AGENT_TOKEN=ci-agent-token-ci-agent-token \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            my-github-agent:test
+
+          agent_ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS -H 'authorization: Bearer ci-agent-token-ci-agent-token' http://127.0.0.1:7100/health >/dev/null; then agent_ok=1; break; fi
+            sleep 1
+          done
+          if [ "$agent_ok" -ne 1 ]; then
+            docker logs ci-agent
+            exit 1
+          fi
+
       - name: Validate Compose
         run: |
           cp .env.example .env
