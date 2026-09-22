@@ -298,7 +298,7 @@ services:
     networks: [control]
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.60.6
+    image: ghcr.io/google/cadvisor:v0.60.6
     restart: unless-stopped
     privileged: true
     volumes:
