@@ -168,6 +168,29 @@ async function processDeployment(deploymentId){
     if(!response.ok) throw new Error(result.error||"Deployment agent rejected release");
 
     await addLog(deploymentId,"Traffic switched to "+sha.slice(0,12)+" on "+deployDomain+" after successful health check");
+
+    if(deployEnvironment==="production"){
+      const workerServices=await sql(
+        "SELECT name,command FROM project_services WHERE project_id=$1 AND type='worker' AND enabled=true ORDER BY name",
+        [job.project_id]
+      );
+      const workerResponse=await fetch(job.base_url.replace(/\/$/,"")+"/services/sync",{
+        method:"POST",
+        headers:{"authorization":"Bearer "+token,"content-type":"application/json"},
+        body:JSON.stringify({
+          projectSlug:job.slug,
+          image,
+          env:environment,
+          mounts,
+          workers:workerServices
+        }),
+        signal:AbortSignal.timeout(120000)
+      });
+      const workerResult=await workerResponse.json().catch(()=>({}));
+      if(!workerResponse.ok) throw new Error(workerResult.error||"Worker service reconciliation failed");
+      await addLog(deploymentId,"Background workers reconciled: "+workerServices.length);
+    }
+
     await db.query("UPDATE deployments SET status='HEALTHY',finished_at=NOW() WHERE id=$1",[deploymentId]);
     await db.query("UPDATE servers SET status='ONLINE',last_seen=NOW(),updated_at=NOW() WHERE id=$1",[job.server_id]);
   }catch(error){
@@ -232,6 +255,115 @@ async function transitionAlert(payload){
     console.error("alert webhook failed",error);
   }
 }
+
+function cronNumber(token,min,max,current){
+  if(token==="*") return true;
+  if(token.startsWith("*/")){
+    const step=Number(token.slice(2));
+    return Number.isInteger(step)&&step>0&&(current-min)%step===0;
+  }
+  return token.split(",").some(piece=>{
+    const [rangePart,stepPart]=piece.split("/");
+    const step=stepPart?Number(stepPart):1;
+    if(!Number.isInteger(step)||step<1) return false;
+    if(rangePart.includes("-")){
+      const [start,end]=rangePart.split("-").map(Number);
+      return Number.isInteger(start)&&Number.isInteger(end)&&start>=min&&end<=max&&current>=start&&current<=end&&(current-start)%step===0;
+    }
+    const value=Number(rangePart);
+    return Number.isInteger(value)&&value>=min&&value<=max&&current===value;
+  });
+}
+
+function cronMatches(schedule,date){
+  const parts=String(schedule||"").trim().split(/\s+/);
+  if(parts.length!==5) return false;
+  const dow=date.getUTCDay();
+  return cronNumber(parts[0],0,59,date.getUTCMinutes())
+    && cronNumber(parts[1],0,23,date.getUTCHours())
+    && cronNumber(parts[2],1,31,date.getUTCDate())
+    && cronNumber(parts[3],1,12,date.getUTCMonth()+1)
+    && (cronNumber(parts[4],0,7,dow)|| (dow===0&&cronNumber(parts[4],0,7,7)));
+}
+
+async function runScheduledService(service,scheduledFor){
+  const inserted=await sql(
+    `INSERT INTO service_runs(service_id,deployment_id,status,scheduled_for)
+     VALUES($1,$2,'RUNNING',$3)
+     ON CONFLICT(service_id,scheduled_for) DO NOTHING
+     RETURNING id`,
+    [service.id,service.deployment_id,scheduledFor]
+  );
+  const run=inserted[0];
+  if(!run) return;
+
+  try{
+    const [envRows,volumeRows]=await Promise.all([
+      sql("SELECT key,value_enc,environment FROM project_env WHERE project_id=$1 AND environment IN ('all','production') ORDER BY CASE WHEN environment='all' THEN 0 ELSE 1 END,key",[service.project_id]),
+      sql("SELECT name,mount_path FROM project_volumes WHERE project_id=$1 ORDER BY name",[service.project_id])
+    ]);
+    const environment={};
+    for(const row of envRows) environment[row.key]=decrypt(row.value_enc);
+    const mounts=volumeRows.map(row=>({name:row.name,mountPath:row.mount_path}));
+    const token=decrypt(service.agent_token_enc);
+
+    const response=await fetch(service.base_url.replace(/\/$/,"")+"/job/run",{
+      method:"POST",
+      headers:{"authorization":"Bearer "+token,"content-type":"application/json"},
+      body:JSON.stringify({
+        projectSlug:service.slug,
+        serviceName:service.name,
+        runId:run.id,
+        image:service.image,
+        command:service.command,
+        env:environment,
+        mounts
+      }),
+      signal:AbortSignal.timeout(11*60*1000)
+    });
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok) throw new Error(result.error||"Scheduled job failed");
+    await db.query(
+      "UPDATE service_runs SET status='SUCCESS',output=$1,finished_at=NOW() WHERE id=$2",
+      [String(result.output||"").slice(-100000),run.id]
+    );
+  }catch(error){
+    await db.query(
+      "UPDATE service_runs SET status='FAILED',error=$1,finished_at=NOW() WHERE id=$2",
+      [error instanceof Error?error.message.slice(0,2000):String(error).slice(0,2000),run.id]
+    );
+  }
+}
+
+let cronTickRunning=false;
+async function tickCron(){
+  if(cronTickRunning) return;
+  cronTickRunning=true;
+  try{
+    const now=new Date();
+    const scheduledFor=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),now.getUTCHours(),now.getUTCMinutes(),0,0));
+    const services=await sql(`SELECT ps.id,ps.project_id,ps.name,ps.command,ps.schedule,p.slug,
+      s.base_url,s.agent_token_enc,d.id deployment_id,d.image
+      FROM project_services ps
+      JOIN projects p ON p.id=ps.project_id
+      JOIN servers s ON s.id=p.server_id
+      JOIN LATERAL (
+        SELECT id,image FROM deployments
+        WHERE project_id=p.id AND environment='production' AND status='HEALTHY' AND image IS NOT NULL
+        ORDER BY id DESC LIMIT 1
+      ) d ON true
+      WHERE ps.type='cron' AND ps.enabled=true AND p.archived_at IS NULL AND s.draining=false`);
+    await Promise.all(services.filter(service=>cronMatches(service.schedule,scheduledFor)).map(service=>runScheduledService(service,scheduledFor)));
+    await db.query("DELETE FROM service_runs WHERE scheduled_for < NOW()-INTERVAL '90 days'");
+  }catch(error){
+    console.error("cron scheduler failed",error);
+  }finally{
+    cronTickRunning=false;
+  }
+}
+
+setInterval(tickCron,30_000).unref();
+setTimeout(tickCron,15_000).unref();
 
 let healthPollRunning=false;
 async function pollProjectHealth(){
