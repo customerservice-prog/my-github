@@ -8,6 +8,7 @@ import { PreviewDeployForm } from "@/components/PreviewDeployForm";
 import { ProjectLifecycle } from "@/components/ProjectLifecycle";
 import { CancelDeploymentButton } from "@/components/CancelDeploymentButton";
 import { ProjectSettingsForm } from "@/components/ProjectSettingsForm";
+import { RotateDatabaseButton } from "@/components/RotateDatabaseButton";
 import { one, query } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
 
@@ -48,7 +49,7 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
       </div>
       <div className="card">
         <div className="card-header"><h2>Environment</h2><span className="muted tiny">AES-256-GCM encrypted</span></div>
-        <div className="card-body stack">{managedDb?<div className="kv"><span>Managed PostgreSQL</span><strong>{managedDb.name} · {managedDb.username}@{managedDb.host}:{managedDb.port}</strong></div>:<ProvisionDatabaseButton projectId={project.id}/>}<SecretForm projectId={project.id}/>{envs.map(e=><div className="row-between" key={e.id}><div><strong className="small">{e.key}</strong><div className="row-sub">{e.environment} · Updated {formatDate(e.updated_at)}</div></div><code>{e.secret?"••••••••":"stored"}</code></div>)}{!envs.length&&<div className="muted small">No environment variables stored.</div>}</div>
+        <div className="card-body stack">{managedDb?<div className="stack"><div className="kv"><span>Managed PostgreSQL</span><strong>{managedDb.name} · {managedDb.username}@{managedDb.host}:{managedDb.port}</strong></div><RotateDatabaseButton projectId={project.id}/></div>:<ProvisionDatabaseButton projectId={project.id}/>}<SecretForm projectId={project.id}/>{envs.map(e=><div className="row-between" key={e.id}><div><strong className="small">{e.key}</strong><div className="row-sub">{e.environment} · Updated {formatDate(e.updated_at)}</div></div><code>{e.secret?"••••••••":"stored"}</code></div>)}{!envs.length&&<div className="muted small">No environment variables stored.</div>}</div>
       </div>
     </section>
     <section className="card section-gap">
