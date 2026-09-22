@@ -161,8 +161,11 @@ function sendHtml(res,status,html){
   res.end(html);
 }
 
-async function activeContainers(slug){
-  const out=await docker(["ps","-a","--filter","label=mygithub.project="+slug,"--format","{{.Names}}"]);
+async function activeContainers(slug,kind=null){
+  const args=["ps","-a","--filter","label=mygithub.project="+slug];
+  if(kind) args.push("--filter","label=mygithub.kind="+kind);
+  args.push("--format","{{.Names}}");
+  const out=await docker(args);
   return out?out.split("\n").filter(Boolean):[];
 }
 
@@ -228,7 +231,7 @@ async function deploy(body){
   await ensureNetwork();
   await docker(["pull",image]);
   const name=projectSlug+"-"+deploymentId;
-  const old=await activeContainers(projectSlug);
+  const old=await activeContainers(projectSlug,"web");
   await docker(["rm","-f",name]).catch(()=>{});
 
   const envPath=await writeEnvFile(name,env);
@@ -240,6 +243,7 @@ async function deploy(body){
       "--restart","unless-stopped",
       "--network",network,
       "--label","mygithub.project="+projectSlug,
+      "--label","mygithub.kind=web",
       "--label","mygithub.deployment="+deploymentId,
       "--env-file",envPath,
       ...mountArgs,
@@ -374,7 +378,7 @@ async function runJob(body){
 }
 
 async function currentContainer(slug){
-  const names=await activeContainers(slug);
+  const names=await activeContainers(slug,"web");
   for(const name of names){
     const running=await docker(["inspect","-f","{{.State.Running}}",name]).catch(()=>"false");
     if(running==="true") return name;
