@@ -186,6 +186,21 @@ const server=http.createServer(async(req,res)=>{
       return send(res,200,{ok:true,container:name});
     }
 
+    if(req.method==="GET"&&url.pathname==="/status"){
+      const slug=String(url.searchParams.get("project")||"");
+      if(!validSlug(slug)) throw new Error("Invalid project slug");
+      const name=await currentContainer(slug);
+      if(!name) return send(res,200,{status:"STOPPED",container:null});
+      const inspect=await docker(["inspect","-f","{{json .State}}",name]);
+      const state=JSON.parse(inspect||"{}");
+      return send(res,200,{
+        status:state.Running?"RUNNING":"STOPPED",
+        container:name,
+        startedAt:state.StartedAt||null,
+        restartCount:Number(await docker(["inspect","-f","{{.RestartCount}}",name]).catch(()=>"0"))||0
+      });
+    }
+
     if(req.method==="GET"&&url.pathname==="/logs"){
       const slug=String(url.searchParams.get("project")||"");
       const lines=Math.min(1000,Math.max(1,Number(url.searchParams.get("lines")||200)));
