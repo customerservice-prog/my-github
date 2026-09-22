@@ -273,3 +273,4 @@ See docs/SECURITY.md.
 - docs/SECURITY.md
 - docs/DISASTER_RECOVERY.md
 - docs/MIGRATION.md
+- docs/LAUNCH_CHECKLIST.md
