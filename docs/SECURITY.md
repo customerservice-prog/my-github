@@ -60,7 +60,7 @@ This initial platform assumes repositories are controlled by the owner. Do not m
 
 Do not publish PostgreSQL or Redis ports.
 
-Do not expose Prometheus, Loki, cAdvisor or node-exporter directly.
+Do not expose Prometheus, Loki, Alloy, cAdvisor or node-exporter directly.
 
 Route administrative web interfaces through HTTPS and add an additional identity layer if they will be internet-accessible.
 
