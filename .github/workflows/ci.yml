@@ -39,6 +39,23 @@ jobs:
         run: bash -n scripts/bootstrap.sh ops/backup/*.sh ops/remote-node/install.sh ops/forgejo-runner/install.sh scripts/forgejo-runner-token.sh
       - name: Validate Alloy configuration
         run: docker run --rm -v "$PWD/observability/alloy.alloy:/etc/alloy/config.alloy:ro" grafana/alloy:v1.19.2 validate /etc/alloy/config.alloy
+      - name: Verify pinned infrastructure image tags
+        run: |
+          set -eu
+          for image in \
+            codeberg.org/forgejo/forgejo:15.0.9 \
+            traefik:v3.7 \
+            minio/minio:RELEASE.2026-09-19T17-05-25Z \
+            minio/mc:RELEASE.2026-09-19T15-24-59Z \
+            prom/prometheus:v3.14.0 \
+            prom/node-exporter:v1.12.1 \
+            gcr.io/cadvisor/cadvisor:v0.60.6 \
+            grafana/loki:3.7.8 \
+            grafana/alloy:v1.19.2 \
+            grafana/grafana:13.2.2
+          do
+            docker manifest inspect "$image" >/dev/null
+          done
       - name: Apply database migrations
         run: npm run migrate
         env:
