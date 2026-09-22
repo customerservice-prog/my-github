@@ -20,6 +20,9 @@ function mutation(method:string){
 function allowed(role:string,pathname:string,method:string){
   if(role==="OWNER") return true;
 
+  const ownerOnly=pathname.startsWith("/api/users")||pathname.startsWith("/settings/users");
+  if(ownerOnly) return false;
+
   if(role==="ADMIN"){
     if(pathname.startsWith("/api/users")||pathname.startsWith("/settings/users")) return false;
     return true;
@@ -32,6 +35,9 @@ function allowed(role:string,pathname:string,method:string){
   }
 
   if(role==="VIEWER"){
+    const infrastructure=pathname.startsWith("/servers")||pathname.startsWith("/backups")||pathname.startsWith("/settings")||pathname.startsWith("/audit")
+      ||pathname.startsWith("/api/servers")||pathname.startsWith("/api/backups")||pathname.startsWith("/api/auth/mfa");
+    if(infrastructure) return false;
     return !mutation(method);
   }
 
