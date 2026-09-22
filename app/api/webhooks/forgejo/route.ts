@@ -3,7 +3,16 @@ import { NextResponse } from "next/server";
 import { one, query } from "@/lib/db";
 import { enqueueDeployment } from "@/lib/queue";
 
-type Project={id:number;branch:string;auto_deploy:boolean};
+type Project={
+  id:number;
+  slug:string;
+  branch:string;
+  domain:string;
+  staging_branch:string|null;
+  staging_domain:string|null;
+  auto_deploy:boolean;
+  archived_at:string|null;
+};
 type Existing={id:number};
 
 function verify(raw:string,request:Request){
@@ -27,14 +36,43 @@ export async function POST(request:Request){
   const after=String(body?.after||"");
   if(!fullName||!ref.startsWith("refs/heads/")||!after) return NextResponse.json({ok:true,ignored:true});
   const branch=ref.replace("refs/heads/","");
-  const projects=await query<Project>("SELECT id,branch,auto_deploy FROM projects WHERE repo_full_name=$1",[fullName]);
+  const projects=await query<Project>(
+    "SELECT id,slug,branch,domain,staging_branch,staging_domain,auto_deploy,archived_at FROM projects WHERE repo_full_name=$1",
+    [fullName]
+  );
   let queued=0;
   for(const project of projects){
-    if(!project.auto_deploy||project.branch!==branch) continue;
-    const existing=await one<Existing>("SELECT id FROM deployments WHERE project_id=$1 AND requested_commit=$2 AND queued_at>NOW()-INTERVAL '1 day' LIMIT 1",[project.id,after]);
+    if(!project.auto_deploy||project.archived_at) continue;
+
+    let environment:"production"|"staging"|null=null;
+    let targetSlug=project.slug;
+    let targetDomain=project.domain;
+
+    if(project.branch===branch){
+      environment="production";
+    }else if(project.staging_domain && (project.staging_branch||"staging")===branch){
+      environment="staging";
+      targetSlug=(project.slug+"-staging").slice(0,63).replace(/-+$/,"");
+      targetDomain=project.staging_domain;
+    }
+
+    if(!environment) continue;
+
+    const existing=await one<Existing>(
+      "SELECT id FROM deployments WHERE project_id=$1 AND requested_commit=$2 AND environment=$3 AND queued_at>NOW()-INTERVAL '1 day' LIMIT 1",
+      [project.id,after,environment]
+    );
     if(existing) continue;
-    const deployment=await one<{id:number}>("INSERT INTO deployments(project_id,status,requested_commit) VALUES($1,'QUEUED',$2) RETURNING id",[project.id,after]);
-    if(deployment){await enqueueDeployment(deployment.id);queued++;}
+
+    const deployment=await one<{id:number}>(
+      `INSERT INTO deployments(project_id,status,requested_commit,environment,target_slug,target_branch,target_domain)
+       VALUES($1,'QUEUED',$2,$3,$4,$5,$6) RETURNING id`,
+      [project.id,after,environment,targetSlug,branch,targetDomain]
+    );
+    if(deployment){
+      await enqueueDeployment(deployment.id);
+      queued++;
+    }
   }
   return NextResponse.json({ok:true,queued});
 }
