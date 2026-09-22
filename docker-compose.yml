@@ -17,6 +17,22 @@ services:
       timeout: 5s
       retries: 10
 
+  app-postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: ${APP_DB_ADMIN_USER}
+      POSTGRES_PASSWORD: ${APP_DB_ADMIN_PASSWORD}
+    volumes:
+      - app_pg:/var/lib/postgresql/data
+    networks: [control, proxy]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${APP_DB_ADMIN_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:8-alpine
     restart: unless-stopped
@@ -203,10 +219,13 @@ services:
         condition: service_healthy
       forgejo-db:
         condition: service_healthy
+      app-postgres:
+        condition: service_healthy
     env_file: .env
     environment:
       PLATFORM_DATABASE_URL: ${DATABASE_URL}
       FORGEJO_DATABASE_URL: postgresql://${FORGEJO_DB_USER}:${FORGEJO_DB_PASSWORD}@forgejo-db:5432/${FORGEJO_DB_NAME}
+      APP_DATABASE_ADMIN_URL: ${APP_DATABASE_ADMIN_URL}
       CONTROL_INTERNAL_URL: http://control:3000
     volumes:
       - forgejo_data:/sources/forgejo:ro
@@ -305,6 +324,7 @@ networks:
 
 volumes:
   platform_pg:
+  app_pg:
   redis_data:
   forgejo_pg:
   forgejo_data:
