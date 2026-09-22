@@ -254,9 +254,15 @@ const server=http.createServer(async(req,res)=>{
       if(!name) return send(res,200,{status:"STOPPED",container:null});
       const inspect=await docker(["inspect","-f","{{json .State}}",name]);
       const state=JSON.parse(inspect||"{}");
+      let maintenance=false;
+      try{
+        const route=await fs.readFile(path.join(dynamicDir,slug+".yml"),"utf8");
+        maintenance=route.includes(slug+"-maintenance");
+      }catch{}
       return send(res,200,{
         status:state.Running?"RUNNING":"STOPPED",
         container:name,
+        maintenance,
         startedAt:state.StartedAt||null,
         restartCount:Number(await docker(["inspect","-f","{{.RestartCount}}",name]).catch(()=>"0"))||0
       });
