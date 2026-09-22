@@ -46,3 +46,8 @@ jobs:
           REDIS_URL: redis://127.0.0.1:6379
           SESSION_SECRET: forgejo-ci-session-secret-forgejo-ci
           MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+      - name: Compose syntax
+        run: |
+          cp .env.example .env
+          node -e "const fs=require('fs'); const s=fs.readFileSync('docker-compose.yml','utf8'); if(!s.includes('services:')) process.exit(1)"
