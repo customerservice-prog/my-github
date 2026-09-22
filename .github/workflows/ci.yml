@@ -91,6 +91,11 @@ jobs:
             exit 1
           fi
 
+          CI_CONTROL_URL=http://127.0.0.1:3100 \
+          CI_BOOTSTRAP_EMAIL=tester@example.test \
+          CI_BOOTSTRAP_PASSWORD=tester-password-12345 \
+          node scripts/ci-control-smoke.mjs
+
           docker run -d --name ci-agent -p 7100:7001 \
             -e AGENT_TOKEN=ci-agent-token-ci-agent-token \
             -v /var/run/docker.sock:/var/run/docker.sock \
