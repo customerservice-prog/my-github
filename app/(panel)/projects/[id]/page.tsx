@@ -3,6 +3,7 @@ import { DeployButton, ProvisionDatabaseButton, RollbackButton, SecretForm } fro
 import { StatusPill } from "@/components/StatusPill";
 import { RuntimePanel } from "@/components/RuntimePanel";
 import { VolumeForm } from "@/components/VolumeForm";
+import { ObjectStorageButton } from "@/components/ObjectStorageButton";
 import { one, query } from "@/lib/db";
 import { formatDate } from "@/lib/utils";
 
@@ -12,16 +13,18 @@ type Deployment={id:number;status:string;commit_sha:string|null;image:string|nul
 type Log={message:string;level:string;created_at:string};
 type ManagedDb={name:string;username:string;host:string;port:number;created_at:string};
 type Volume={id:number;name:string;mount_path:string;created_at:string};
+type Bucket={bucket_name:string;endpoint:string;created_at:string};
 
 export default async function ProjectPage({params}:{params:Promise<{id:string}>}){
   const {id}=await params;
   const project=await one<Project>(`SELECT p.*,s.name server_name,s.status server_status FROM projects p LEFT JOIN servers s ON s.id=p.server_id WHERE p.id=$1`,[Number(id)]);
   if(!project) notFound();
-  const [envs,deployments,managedDb,volumes]=await Promise.all([
+  const [envs,deployments,managedDb,volumes,bucket]=await Promise.all([
     query<Env>("SELECT id,key,secret,updated_at FROM project_env WHERE project_id=$1 ORDER BY key",[project.id]),
     query<Deployment>("SELECT id,status,commit_sha,image,error,queued_at,finished_at FROM deployments WHERE project_id=$1 ORDER BY id DESC LIMIT 20",[project.id]),
     one<ManagedDb>("SELECT name,username,host,port,created_at FROM project_databases WHERE project_id=$1",[project.id]),
-    query<Volume>("SELECT id,name,mount_path,created_at FROM project_volumes WHERE project_id=$1 ORDER BY name",[project.id])
+    query<Volume>("SELECT id,name,mount_path,created_at FROM project_volumes WHERE project_id=$1 ORDER BY name",[project.id]),
+    one<Bucket>("SELECT bucket_name,endpoint,created_at FROM project_buckets WHERE project_id=$1",[project.id])
   ]);
   const latest=deployments[0];
   const logs=latest?await query<Log>("SELECT message,level,created_at FROM deployment_logs WHERE deployment_id=$1 ORDER BY id DESC LIMIT 120",[latest.id]):[];
@@ -46,6 +49,7 @@ export default async function ProjectPage({params}:{params:Promise<{id:string}>}
     <section className="card section-gap">
       <div className="card-header"><h2>Persistent storage</h2><span className="muted tiny">Survives container replacements</span></div>
       <div className="card-body stack">
+        <div className="row-between"><div><strong className="small">S3-compatible object storage</strong><div className="row-sub">{bucket?bucket.bucket_name+" · "+bucket.endpoint:"Dedicated bucket and scoped credentials"}</div></div>{bucket?<StatusPill status="HEALTHY"/>:<ObjectStorageButton projectId={project.id}/>}</div>
         <VolumeForm projectId={project.id}/>
         {volumes.length?<div className="table-wrap"><table><thead><tr><th>Volume</th><th>Container path</th><th>Created</th></tr></thead><tbody>{volumes.map(v=><tr key={v.id}><td><code>{v.name}</code></td><td><code>{v.mount_path}</code></td><td>{formatDate(v.created_at)}</td></tr>)}</tbody></table></div>:<div className="muted small">No persistent volumes configured. Database-backed apps may not need one unless they also store local uploads or generated files.</div>}
       </div>
