@@ -1,0 +1,320 @@
+name: my-github
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - platform_pg:/var/lib/postgresql/data
+    networks: [control]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "100"]
+    volumes:
+      - redis_data:/data
+    networks: [control]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  forgejo-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${FORGEJO_DB_NAME}
+      POSTGRES_USER: ${FORGEJO_DB_USER}
+      POSTGRES_PASSWORD: ${FORGEJO_DB_PASSWORD}
+    volumes:
+      - forgejo_pg:/var/lib/postgresql/data
+    networks: [control]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${FORGEJO_DB_USER} -d ${FORGEJO_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:14
+    restart: unless-stopped
+    depends_on:
+      forgejo-db:
+        condition: service_healthy
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__database__DB_TYPE: postgres
+      FORGEJO__database__HOST: forgejo-db:5432
+      FORGEJO__database__NAME: ${FORGEJO_DB_NAME}
+      FORGEJO__database__USER: ${FORGEJO_DB_USER}
+      FORGEJO__database__PASSWD: ${FORGEJO_DB_PASSWORD}
+      FORGEJO__server__ROOT_URL: https://${GIT_DOMAIN}/
+      FORGEJO__server__DOMAIN: ${GIT_DOMAIN}
+      FORGEJO__server__SSH_DOMAIN: ${GIT_DOMAIN}
+      FORGEJO__server__SSH_PORT: "2222"
+      FORGEJO__server__START_SSH_SERVER: "true"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__service__REQUIRE_SIGNIN_VIEW: "true"
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__packages__ENABLED: "true"
+      FORGEJO__actions__ENABLED: "true"
+    volumes:
+      - forgejo_data:/data
+    networks: [control, proxy]
+    ports:
+      - "2222:22"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform-proxy
+      - traefik.http.routers.forgejo.rule=Host(\`${GIT_DOMAIN}\`)
+      - traefik.http.routers.forgejo.entrypoints=websecure
+      - traefik.http.routers.forgejo.tls.certresolver=letsencrypt
+      - traefik.http.services.forgejo.loadbalancer.server.port=3000
+
+  traefik:
+    image: traefik:v3.5
+    restart: unless-stopped
+    command:
+      - --api.dashboard=false
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=platform-proxy
+      - --providers.file.directory=/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --log.level=INFO
+      - --accesslog=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_acme:/letsencrypt
+      - traefik_dynamic:/dynamic
+    networks: [proxy]
+
+  control:
+    build:
+      context: .
+      dockerfile: Dockerfile.control
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      forgejo:
+        condition: service_started
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      FORGEJO_INTERNAL_URL: ${FORGEJO_INTERNAL_URL}
+    volumes:
+      - backup_control:/backup-control
+    networks: [control, proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform-proxy
+      - traefik.http.routers.control.rule=Host(\`${CONTROL_DOMAIN}\`)
+      - traefik.http.routers.control.entrypoints=websecure
+      - traefik.http.routers.control.tls.certresolver=letsencrypt
+      - traefik.http.services.control.loadbalancer.server.port=3000
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - build_cache:/workspace
+    networks: [control]
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    restart: unless-stopped
+    environment:
+      AGENT_TOKEN: ${LOCAL_AGENT_TOKEN}
+      TRAEFIK_DYNAMIC_DIR: /dynamic
+      AGENT_PORT: "7001"
+      PROXY_NETWORK: platform-proxy
+      CERT_RESOLVER: letsencrypt
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - traefik_dynamic:/dynamic
+    networks: [control, proxy]
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    networks: [control, proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform-proxy
+      - traefik.http.routers.minio.rule=Host(\`${STORAGE_DOMAIN}\`)
+      - traefik.http.routers.minio.entrypoints=websecure
+      - traefik.http.routers.minio.tls.certresolver=letsencrypt
+      - traefik.http.routers.minio.service=minio
+      - traefik.http.services.minio.loadbalancer.server.port=9000
+      - traefik.http.routers.minio-console.rule=Host(\`${STORAGE_CONSOLE_DOMAIN}\`)
+      - traefik.http.routers.minio-console.entrypoints=websecure
+      - traefik.http.routers.minio-console.tls.certresolver=letsencrypt
+      - traefik.http.routers.minio-console.service=minio-console
+      - traefik.http.services.minio-console.loadbalancer.server.port=9001
+
+  backup:
+    build: ./ops/backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      forgejo-db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      PLATFORM_DATABASE_URL: ${DATABASE_URL}
+      FORGEJO_DATABASE_URL: postgresql://${FORGEJO_DB_USER}:${FORGEJO_DB_PASSWORD}@forgejo-db:5432/${FORGEJO_DB_NAME}
+      CONTROL_INTERNAL_URL: http://control:3000
+    volumes:
+      - forgejo_data:/sources/forgejo:ro
+      - minio_data:/sources/minio:ro
+      - backup_store:/repository
+      - backup_control:/control
+    networks: [control]
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks: [control]
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    restart: unless-stopped
+    command: ["--path.rootfs=/host"]
+    volumes:
+      - /:/host:ro,rslave
+    networks: [control]
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    networks: [control]
+
+  loki:
+    image: grafana/loki:latest
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./observability/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    networks: [control]
+
+  promtail:
+    image: grafana/promtail:latest
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./observability/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [control]
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    networks: [control, proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform-proxy
+      - traefik.http.routers.grafana.rule=Host(\`${GRAFANA_DOMAIN}\`)
+      - traefik.http.routers.grafana.entrypoints=websecure
+      - traefik.http.routers.grafana.tls.certresolver=letsencrypt
+      - traefik.http.services.grafana.loadbalancer.server.port=3000
+
+  uptime:
+    image: louislam/uptime-kuma:latest
+    restart: unless-stopped
+    volumes:
+      - uptime_data:/app/data
+    networks: [control, proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform-proxy
+      - traefik.http.routers.uptime.rule=Host(\`${STATUS_DOMAIN}\`)
+      - traefik.http.routers.uptime.entrypoints=websecure
+      - traefik.http.routers.uptime.tls.certresolver=letsencrypt
+      - traefik.http.services.uptime.loadbalancer.server.port=3001
+
+networks:
+  control:
+    name: platform-control
+  proxy:
+    name: platform-proxy
+
+volumes:
+  platform_pg:
+  redis_data:
+  forgejo_pg:
+  forgejo_data:
+  minio_data:
+  traefik_acme:
+  traefik_dynamic:
+  build_cache:
+  backup_store:
+  backup_control:
+  prometheus_data:
+  loki_data:
+  grafana_data:
+  uptime_data:
