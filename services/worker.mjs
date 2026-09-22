@@ -177,7 +177,7 @@ async function processDeployment(deploymentId){
 
 async function pollServers(){
   try{
-    const servers=await sql("SELECT id,base_url,agent_token_enc FROM servers ORDER BY id");
+    const servers=await sql("SELECT id,name,status,base_url,agent_token_enc FROM servers ORDER BY id");
     await Promise.all(servers.map(async server=>{
       let online=false;
       try{
@@ -188,10 +188,20 @@ async function pollServers(){
         });
         online=response.ok;
       }catch{}
+      const nextStatus=online?"ONLINE":"OFFLINE";
       await db.query(
         "UPDATE servers SET status=$1,last_seen=CASE WHEN $1='ONLINE' THEN NOW() ELSE last_seen END,updated_at=NOW() WHERE id=$2",
-        [online?"ONLINE":"OFFLINE",server.id]
+        [nextStatus,server.id]
       );
+      if(server.status && server.status!=="UNKNOWN" && server.status!==nextStatus){
+        await transitionAlert({
+          type:"server_health_transition",
+          serverId:server.id,
+          server:server.name,
+          previous:server.status,
+          status:nextStatus
+        });
+      }
     }));
   }catch(error){
     console.error("server heartbeat failed",error);
