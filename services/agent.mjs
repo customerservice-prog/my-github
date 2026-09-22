@@ -340,6 +340,22 @@ const server=http.createServer(async(req,res)=>{
       return send(res,200,{ok:true,maintenance:false,container:name});
     }
 
+    if(req.method==="POST"&&url.pathname==="/remove"){
+      const body=await readBody(req);
+      const slug=String(body.projectSlug||"");
+      if(!validSlug(slug)) throw new Error("Invalid project slug");
+      const names=await activeContainers(slug);
+      for(const name of names) await docker(["rm","-f",name]).catch(()=>{});
+      await fs.rm(path.join(dynamicDir,slug+".yml"),{force:true}).catch(()=>{});
+      if(Boolean(body.removeVolumes)){
+        const volumes=await docker(["volume","ls","--filter","label=mygithub.project="+slug,"-q"]).catch(()=>"");
+        for(const volume of volumes.split("\n").filter(Boolean)){
+          await docker(["volume","rm",volume]).catch(()=>{});
+        }
+      }
+      return send(res,200,{ok:true,removedContainers:names.length});
+    }
+
     if(req.method==="POST"&&url.pathname==="/restart"){
       const body=await readBody(req);
       const slug=String(body.projectSlug||"");
